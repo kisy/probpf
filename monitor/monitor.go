@@ -1,0 +1,345 @@
+package monitor
+
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang -no-strip monitor ../bpf/monitor.bpf.c
+
+import (
+	"fmt"
+	"net"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
+	"github.com/olekukonko/tablewriter"
+	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
+)
+
+// HostKey 映射 C 结构体
+type HostKey struct {
+	LocalMac   [6]byte
+	LocalAddr  [16]byte
+	RemoteAddr [16]byte
+	LocalPort  uint16
+	RemotePort uint16
+	Proto      uint8
+	IPVer      uint8
+}
+
+// HostStats 映射 C 结构体
+type HostStats struct {
+	RxBytes uint64
+	TxBytes uint64
+}
+
+// HostDelta 跟踪连接活动
+type HostDeltaStats struct {
+	RangeRxBytes uint64 // 两次差值接收字节数
+	RangeTxBytes uint64 // 两次差值发送字节数
+	LastRxBytes  uint64 // 上次累计接收字节数
+	LastTxBytes  uint64 // 上次累计发送字节数
+	UpdateTime   time.Time
+}
+
+type Monitor struct {
+	xdpLink        link.Link
+	tcFilter       netlink.BpfFilter
+	stats          *ebpf.Map
+	startTime      time.Time
+	username       string
+	ifaceName      string
+	ifaceIndex     int
+	deltaStatsMap  map[HostKey]*HostDeltaStats
+	deltaStatsMu   sync.RWMutex
+	lastUpdateTime time.Time
+}
+
+// 获取协议名称
+func getProtoName(proto uint8) string {
+	switch proto {
+	case 6:
+		return "TCP"
+	case 17:
+		return "UDP"
+	default:
+		return fmt.Sprintf("%d", proto)
+	}
+}
+
+// 格式化字节数
+func formatBytes(bytes uint64) string {
+	if bytes >= 1024*1024*1024 {
+		return fmt.Sprintf("%.2f GB", float64(bytes)/(1024*1024*1024))
+	} else if bytes >= 1024*1024 {
+		return fmt.Sprintf("%.2f MB", float64(bytes)/(1024*1024))
+	} else if bytes >= 1024 {
+		return fmt.Sprintf("%.2f KB", float64(bytes)/1024)
+	}
+	return fmt.Sprintf("%d B", bytes)
+}
+
+// 格式化 IP:Port
+func formatIPPort(ip net.IP, port uint16) string {
+	return fmt.Sprintf("%s:%d", ip.String(), port)
+}
+
+// 格式化 MAC 地址
+func formatMAC(mac [6]byte) string {
+	return net.HardwareAddr(mac[:]).String()
+}
+
+func NewMonitor(ifaceName string, username string, xdpMode link.XDPAttachFlags) (*Monitor, error) {
+	objs := monitorObjects{}
+	if err := loadMonitorObjects(&objs, nil); err != nil {
+		return nil, fmt.Errorf("loading objects: %v", err)
+	}
+
+	fmt.Println("Loaded BPF program")
+
+	ifaceLink, err := netlink.LinkByName(ifaceName)
+	if err != nil {
+		return nil, fmt.Errorf("getting interface: %v", err)
+	}
+	ifaceIndex := ifaceLink.Attrs().Index
+
+	fmt.Println("Loaded InterfaceByName")
+
+	// 先创建 XDP link
+	xdpLink, err := link.AttachXDP(link.XDPOptions{
+		Program:   objs.XdpMonitor,
+		Interface: ifaceIndex,
+		Flags:     xdpMode,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("attaching XDP: %v", err)
+	}
+
+	fmt.Println("Attached XDP")
+
+	filters, err := netlink.FilterList(ifaceLink, netlink.HANDLE_MIN_EGRESS)
+	if err != nil {
+		xdpLink.Close()
+		return nil, fmt.Errorf("list filters failed: %v", err)
+	}
+
+	fmt.Println("Loaded FilterList")
+
+	// 删除同名的 filter
+	for _, filter := range filters {
+		if bpfFilter, ok := filter.(*netlink.BpfFilter); ok {
+			if bpfFilter.Name == "tc_monitor" {
+				if err := netlink.FilterDel(filter); err != nil {
+					xdpLink.Close()
+					return nil, fmt.Errorf("delete existing filter failed: %v", err)
+				}
+			}
+		}
+	}
+
+	// clsact qdisc 存在
+	qdisc := &netlink.GenericQdisc{
+		QdiscAttrs: netlink.QdiscAttrs{
+			LinkIndex: ifaceIndex,
+			Handle:    netlink.MakeHandle(0xffff, 0),
+			Parent:    netlink.HANDLE_CLSACT,
+		},
+		QdiscType: "clsact",
+	}
+
+	// 尝试添加 qdisc，忽略"已存在"错误
+	if err := netlink.QdiscAdd(qdisc); err != nil && !strings.Contains(err.Error(), "file exists") {
+		xdpLink.Close()
+		return nil, fmt.Errorf("adding qdisc: %v", err)
+	}
+
+	fmt.Println("Added clsact qdisc")
+
+	// 4. 添加新的 TC filter
+	filter := &netlink.BpfFilter{
+		FilterAttrs: netlink.FilterAttrs{
+			LinkIndex: ifaceIndex,
+			Parent:    netlink.HANDLE_MIN_EGRESS,
+			Handle:    1,
+			Protocol:  unix.ETH_P_ALL,
+			Priority:  1,
+		},
+		Fd:           objs.TcMonitor.FD(),
+		Name:         "tc_monitor", // 用特定名称标识我们的 filter
+		DirectAction: true,
+	}
+
+	fmt.Println("Created TC filter")
+
+	if err := netlink.FilterAdd(filter); err != nil {
+		xdpLink.Close()
+		return nil, fmt.Errorf("adding TC filter: %v", err)
+	}
+
+	fmt.Println("Added TC filter")
+
+	return &Monitor{
+		xdpLink:       xdpLink,
+		tcFilter:      *filter,
+		stats:         objs.HostStats,
+		startTime:     time.Now(),
+		username:      username,
+		ifaceName:     ifaceName,
+		ifaceIndex:    ifaceIndex, // 保存接口索引
+		deltaStatsMap: make(map[HostKey]*HostDeltaStats),
+	}, nil
+}
+
+// UpdateStats 更新缓存的统计数据
+func (m *Monitor) UpdateStats() {
+	now := time.Now()
+
+	// 获取新数据
+	var key HostKey
+	var stats HostStats
+
+	iter := m.stats.Iterate()
+
+	m.deltaStatsMu.Lock()
+
+	m.lastUpdateTime = now
+	for iter.Next(&key, &stats) {
+		deltaStats, exists := m.deltaStatsMap[key]
+		if !exists {
+			deltaStats = &HostDeltaStats{
+				RangeRxBytes: stats.RxBytes,
+				RangeTxBytes: stats.TxBytes,
+				LastRxBytes:  stats.RxBytes,
+				LastTxBytes:  stats.TxBytes,
+				UpdateTime:   now,
+			}
+			m.deltaStatsMap[key] = deltaStats
+		} else if stats.RxBytes != deltaStats.LastRxBytes || stats.TxBytes != deltaStats.LastTxBytes {
+			deltaStats.RangeRxBytes = stats.RxBytes - deltaStats.LastRxBytes
+			deltaStats.RangeTxBytes = stats.TxBytes - deltaStats.LastTxBytes
+			deltaStats.LastRxBytes = stats.RxBytes
+			deltaStats.LastTxBytes = stats.TxBytes
+			deltaStats.UpdateTime = now
+		}
+	}
+
+	// 清理过期连接
+	for k, deltaStats := range m.deltaStatsMap {
+		if now.Sub(deltaStats.UpdateTime) > 60*time.Second {
+			m.stats.Delete(&k)
+			delete(m.deltaStatsMap, k)
+		}
+	}
+
+	m.deltaStatsMu.Unlock()
+}
+
+func (m *Monitor) PrintStats() {
+	now := time.Now()
+
+	// 使用缓存的数据
+	m.deltaStatsMu.RLock()
+	latestStats := make(map[HostKey]HostStats, len(m.deltaStatsMap))
+	for k, v := range m.deltaStatsMap {
+		latestStats[k] = HostStats{
+			RxBytes: v.LastRxBytes,
+			TxBytes: v.LastTxBytes,
+		}
+	}
+	lastUpdate := m.lastUpdateTime
+	m.deltaStatsMu.RUnlock()
+
+	// 清屏并移动光标到开头
+	fmt.Printf("\033[2J\033[H")
+
+	// 打印系统信息表格
+	infoTable := tablewriter.NewWriter(os.Stdout)
+	infoTable.SetHeader([]string{"Information", "Value"})
+	infoTable.SetColumnAlignment([]int{tablewriter.ALIGN_LEFT, tablewriter.ALIGN_LEFT})
+	infoTable.SetBorder(true)
+	infoTable.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+	infoTable.SetRowLine(true)
+	infoTable.SetAlignment(tablewriter.ALIGN_LEFT)
+
+	infoTable.Append([]string{"Date Time (UTC)", now.UTC().Format("2006-01-02 15:04:05")})
+	infoTable.Append([]string{"User", m.username})
+	infoTable.Append([]string{"Interface", m.ifaceName})
+	infoTable.Append([]string{"Runtime", time.Since(m.startTime).Round(time.Second).String()})
+	infoTable.Append([]string{"Last Update", lastUpdate.UTC().Format("2006-01-02 15:04:05")})
+	infoTable.Render()
+	fmt.Println()
+
+	// 创建网络统计数据表格
+	table := tablewriter.NewWriter(os.Stdout)
+	table.SetHeader([]string{"Local MAC", "Local Address", "Remote Address", "Protocol", "RX", "TX"})
+	table.SetBorder(true)
+	table.SetColumnAlignment([]int{
+		tablewriter.ALIGN_LEFT,   // MAC
+		tablewriter.ALIGN_LEFT,   // Local Address
+		tablewriter.ALIGN_LEFT,   // Remote Address
+		tablewriter.ALIGN_CENTER, // Protocol
+		tablewriter.ALIGN_RIGHT,  // RX
+		tablewriter.ALIGN_RIGHT,  // TX
+	})
+	table.SetHeaderAlignment(tablewriter.ALIGN_CENTER)
+	table.SetAutoWrapText(false)
+	table.SetAutoFormatHeaders(true)
+	table.SetHeaderLine(true)
+	table.SetBorders(tablewriter.Border{Left: true, Top: true, Right: true, Bottom: true})
+
+	// 遍历缓存的数据
+	for key, stats := range latestStats {
+		var localIP, remoteIP net.IP
+		if key.IPVer == 4 {
+			localIP = net.IP(key.LocalAddr[:4])
+			remoteIP = net.IP(key.RemoteAddr[:4])
+		} else {
+			localIP = net.IP(key.LocalAddr[:])
+			remoteIP = net.IP(key.RemoteAddr[:])
+		}
+
+		table.Append([]string{
+			formatMAC(key.LocalMac),
+			formatIPPort(localIP, key.LocalPort),
+			formatIPPort(remoteIP, key.RemotePort),
+			getProtoName(key.Proto),
+			formatBytes(stats.RxBytes),
+			formatBytes(stats.TxBytes),
+		})
+	}
+
+	// 渲染表格
+	table.Render()
+}
+
+func (m *Monitor) Close() {
+	fmt.Println("Start close monitor...")
+	if m.xdpLink != nil {
+		// 增加错误处理
+		if err := m.xdpLink.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error detaching XDP program: %v\n", err)
+		}
+	}
+
+	fmt.Println("Closed XDP")
+
+	if m.tcFilter.Fd != 0 {
+		netlink.FilterDel(&m.tcFilter)
+	}
+
+	fmt.Println("Deleted TC filter")
+
+	if link, err := netlink.LinkByIndex(m.tcFilter.LinkIndex); err == nil {
+		netlink.QdiscDel(&netlink.GenericQdisc{
+			QdiscAttrs: netlink.QdiscAttrs{
+				LinkIndex: link.Attrs().Index,
+				Handle:    netlink.MakeHandle(0xffff, 0),
+				Parent:    netlink.HANDLE_CLSACT,
+			},
+			QdiscType: "clsact",
+		})
+	}
+
+	fmt.Println("Deleted clsact qdisc")
+}
