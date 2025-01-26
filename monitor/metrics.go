@@ -27,13 +27,13 @@ func NewPrometheusCollector(m *Monitor) *PrometheusCollector {
 		rxDesc: prometheus.NewDesc(
 			"probpf_rx_bytes",
 			"Number of bytes received since last scrape",
-			[]string{"mac", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
+			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
 			nil,
 		),
 		txDesc: prometheus.NewDesc(
 			"probpf_tx_bytes",
 			"Number of bytes transmitted since last scrape",
-			[]string{"mac", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
+			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
 			nil,
 		),
 	}
@@ -68,8 +68,14 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 			remoteIP = net.IP(key.RemoteAddr[:]).String()
 		}
 
+		mac := formatMAC(key.LocalMac)
+		localName, exists := c.monitor.HostNameMap[mac]
+		if !exists {
+			localName = mac
+		}
+
 		labels := []string{
-			formatMAC(key.LocalMac),
+			localName,
 			localIP,
 			fmt.Sprint(key.LocalPort),
 			remoteIP,

@@ -1,8 +1,9 @@
-module probpf
+module github.com/kisy/probpf
 
 go 1.23.5
 
 require (
+	github.com/BurntSushi/toml v1.4.0
 	github.com/cilium/ebpf v0.17.1
 	github.com/olekukonko/tablewriter v0.0.5
 	github.com/prometheus/client_golang v1.20.5

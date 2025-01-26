@@ -15,6 +15,8 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+
+	"github.com/kisy/probpf/config"
 )
 
 // HostKey 映射 C 结构体
@@ -48,12 +50,13 @@ type Monitor struct {
 	tcFilter       netlink.BpfFilter
 	stats          *ebpf.Map
 	startTime      time.Time
-	username       string
 	ifaceName      string
 	ifaceIndex     int
 	deltaStatsMap  map[HostKey]*HostDeltaStats
 	deltaStatsMu   sync.RWMutex
+	lastBpfLen     int
 	lastUpdateTime time.Time
+	HostNameMap    map[string]string
 }
 
 // 获取协议名称
@@ -90,41 +93,33 @@ func formatMAC(mac [6]byte) string {
 	return net.HardwareAddr(mac[:]).String()
 }
 
-func NewMonitor(ifaceName string, username string, xdpMode link.XDPAttachFlags) (*Monitor, error) {
+func NewMonitor(cfg config.Config) (*Monitor, error) {
 	objs := monitorObjects{}
 	if err := loadMonitorObjects(&objs, nil); err != nil {
 		return nil, fmt.Errorf("loading objects: %v", err)
 	}
 
-	fmt.Println("Loaded BPF program")
-
-	ifaceLink, err := netlink.LinkByName(ifaceName)
+	ifaceLink, err := netlink.LinkByName(cfg.Interface)
 	if err != nil {
 		return nil, fmt.Errorf("getting interface: %v", err)
 	}
 	ifaceIndex := ifaceLink.Attrs().Index
 
-	fmt.Println("Loaded InterfaceByName")
-
 	// 先创建 XDP link
 	xdpLink, err := link.AttachXDP(link.XDPOptions{
 		Program:   objs.XdpMonitor,
 		Interface: ifaceIndex,
-		Flags:     xdpMode,
+		Flags:     config.FormatXDPMode(cfg.XDPMode),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("attaching XDP: %v", err)
 	}
-
-	fmt.Println("Attached XDP")
 
 	filters, err := netlink.FilterList(ifaceLink, netlink.HANDLE_MIN_EGRESS)
 	if err != nil {
 		xdpLink.Close()
 		return nil, fmt.Errorf("list filters failed: %v", err)
 	}
-
-	fmt.Println("Loaded FilterList")
 
 	// 删除同名的 filter
 	for _, filter := range filters {
@@ -154,8 +149,6 @@ func NewMonitor(ifaceName string, username string, xdpMode link.XDPAttachFlags) 
 		return nil, fmt.Errorf("adding qdisc: %v", err)
 	}
 
-	fmt.Println("Added clsact qdisc")
-
 	// 4. 添加新的 TC filter
 	filter := &netlink.BpfFilter{
 		FilterAttrs: netlink.FilterAttrs{
@@ -170,24 +163,21 @@ func NewMonitor(ifaceName string, username string, xdpMode link.XDPAttachFlags) 
 		DirectAction: true,
 	}
 
-	fmt.Println("Created TC filter")
-
 	if err := netlink.FilterAdd(filter); err != nil {
 		xdpLink.Close()
 		return nil, fmt.Errorf("adding TC filter: %v", err)
 	}
-
-	fmt.Println("Added TC filter")
 
 	return &Monitor{
 		xdpLink:       xdpLink,
 		tcFilter:      *filter,
 		stats:         objs.HostStats,
 		startTime:     time.Now(),
-		username:      username,
-		ifaceName:     ifaceName,
+		ifaceName:     cfg.Interface,
 		ifaceIndex:    ifaceIndex, // 保存接口索引
 		deltaStatsMap: make(map[HostKey]*HostDeltaStats),
+		lastBpfLen:    0,
+		HostNameMap:   cfg.Hostname,
 	}, nil
 }
 
@@ -195,16 +185,16 @@ func NewMonitor(ifaceName string, username string, xdpMode link.XDPAttachFlags) 
 func (m *Monitor) UpdateStats() {
 	now := time.Now()
 
-	// 获取新数据
 	var key HostKey
 	var stats HostStats
-
+	lastBpfLen := 0
+	// 获取新数据
 	iter := m.stats.Iterate()
 
 	m.deltaStatsMu.Lock()
-
 	m.lastUpdateTime = now
 	for iter.Next(&key, &stats) {
+		lastBpfLen++
 		deltaStats, exists := m.deltaStatsMap[key]
 		if !exists {
 			deltaStats = &HostDeltaStats{
@@ -221,23 +211,17 @@ func (m *Monitor) UpdateStats() {
 			deltaStats.LastRxBytes = stats.RxBytes
 			deltaStats.LastTxBytes = stats.TxBytes
 			deltaStats.UpdateTime = now
+		} else if now.Sub(deltaStats.UpdateTime) > 60*time.Second {
+			// 清理过期连接
+			delete(m.deltaStatsMap, key)
+			m.stats.Delete(&key)
 		}
 	}
-
-	// 清理过期连接
-	for k, deltaStats := range m.deltaStatsMap {
-		if now.Sub(deltaStats.UpdateTime) > 60*time.Second {
-			m.stats.Delete(&k)
-			delete(m.deltaStatsMap, k)
-		}
-	}
-
+	m.lastBpfLen = lastBpfLen
 	m.deltaStatsMu.Unlock()
 }
 
 func (m *Monitor) PrintStats() {
-	now := time.Now()
-
 	// 使用缓存的数据
 	m.deltaStatsMu.RLock()
 	latestStats := make(map[HostKey]HostStats, len(m.deltaStatsMap))
@@ -247,6 +231,7 @@ func (m *Monitor) PrintStats() {
 			TxBytes: v.LastTxBytes,
 		}
 	}
+	lastBpfLen := m.lastBpfLen
 	lastUpdate := m.lastUpdateTime
 	m.deltaStatsMu.RUnlock()
 
@@ -262,17 +247,16 @@ func (m *Monitor) PrintStats() {
 	infoTable.SetRowLine(true)
 	infoTable.SetAlignment(tablewriter.ALIGN_LEFT)
 
-	infoTable.Append([]string{"Date Time (UTC)", now.UTC().Format("2006-01-02 15:04:05")})
-	infoTable.Append([]string{"User", m.username})
 	infoTable.Append([]string{"Interface", m.ifaceName})
 	infoTable.Append([]string{"Runtime", time.Since(m.startTime).Round(time.Second).String()})
+	infoTable.Append([]string{"Connections", fmt.Sprintf("%d:%d", len(latestStats), lastBpfLen)})
 	infoTable.Append([]string{"Last Update", lastUpdate.UTC().Format("2006-01-02 15:04:05")})
 	infoTable.Render()
 	fmt.Println()
 
 	// 创建网络统计数据表格
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Local MAC", "Local Address", "Remote Address", "Protocol", "RX", "TX"})
+	table.SetHeader([]string{"Host Name", "Host Address", "Remote Address", "Protocol", "RX", "TX"})
 	table.SetBorder(true)
 	table.SetColumnAlignment([]int{
 		tablewriter.ALIGN_LEFT,   // MAC
@@ -299,8 +283,14 @@ func (m *Monitor) PrintStats() {
 			remoteIP = net.IP(key.RemoteAddr[:])
 		}
 
+		mac := formatMAC(key.LocalMac)
+		localName, exists := m.HostNameMap[mac]
+		if !exists {
+			localName = mac
+		}
+
 		table.Append([]string{
-			formatMAC(key.LocalMac),
+			localName,
 			formatIPPort(localIP, key.LocalPort),
 			formatIPPort(remoteIP, key.RemotePort),
 			getProtoName(key.Proto),
@@ -314,7 +304,6 @@ func (m *Monitor) PrintStats() {
 }
 
 func (m *Monitor) Close() {
-	fmt.Println("Start close monitor...")
 	if m.xdpLink != nil {
 		// 增加错误处理
 		if err := m.xdpLink.Close(); err != nil {
@@ -322,15 +311,15 @@ func (m *Monitor) Close() {
 		}
 	}
 
-	fmt.Println("Closed XDP")
-
 	if m.tcFilter.Fd != 0 {
-		netlink.FilterDel(&m.tcFilter)
+		err := netlink.FilterDel(&m.tcFilter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error clean TC filter: %v\n", err)
+		}
 	}
 
-	fmt.Println("Deleted TC filter")
-
-	if link, err := netlink.LinkByIndex(m.tcFilter.LinkIndex); err == nil {
+	link, err := netlink.LinkByIndex(m.tcFilter.LinkIndex)
+	if err == nil {
 		netlink.QdiscDel(&netlink.GenericQdisc{
 			QdiscAttrs: netlink.QdiscAttrs{
 				LinkIndex: link.Attrs().Index,
@@ -340,6 +329,4 @@ func (m *Monitor) Close() {
 			QdiscType: "clsact",
 		})
 	}
-
-	fmt.Println("Deleted clsact qdisc")
 }
