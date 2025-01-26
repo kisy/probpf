@@ -1,0 +1,17 @@
+# Network interface configuration
+interface = "br0"
+
+# Prometheus configuration
+prometheus_addr = ":9092"
+
+# Monitor configuration
+sync_interval = 10
+
+# XDP mode configuration (auto, generic, driver, offload)
+xdp_mode = "generic"
+
+# Hostname configuration
+[hostname]
+"aa:bb:73:f3:08:5d" = "MacMini"
+"cc:dd:73:f3:08:5e" = "iPhone"
+
