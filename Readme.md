@@ -59,19 +59,13 @@ sudo ./probpf -i eth0
 
 Start with Prometheus metrics enabled:
 ```bash
-sudo ./probpf -i br0 --prometheus
-```
-
-Configure custom Prometheus metrics port:
-```bash
-sudo ./probpf -i br0 --prometheus -addr :9093
+sudo ./probpf -i br0 -p 127.0.0.1:9092
 ```
 
 ## Command Line Options
 
 - `-i string`: Interface to monitor (default "br0")
-- `--prometheus`: Enable Prometheus metrics
-- `-addr string`: Prometheus metrics address (default ":9092")
+- `-p string`: Prometheus metrics address (default ":9092")
 - `-x string`: XDP mode (auto, generic, driver, offload)
 - `-s integer`: Stats sync interval in seconds
 
@@ -83,7 +77,7 @@ When running in Prometheus mode, the following metrics are exposed:
 - `probpf_tx_bytes`: Number of bytes transmitted since last scrape
 
 Metrics include the following labels:
-- `mac`: Local MAC address
+- `host`: Local MAC address
 - `ip`: Local IP address
 - `port`: Local port
 - `remote_ip`: Remote IP address
