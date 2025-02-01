@@ -198,6 +198,7 @@ func (m *Monitor) UpdateStats() {
 	m.deltaStatsMu.Lock()
 	m.lastUpdateTime = now
 
+	// 判断是否更新区间统计数据
 	if now.Sub(m.lastTotalTime) >= time.Duration(m.TotalInterval)*time.Second {
 		m.lastTotalTime = now
 	}
@@ -218,7 +219,7 @@ func (m *Monitor) UpdateStats() {
 				SpeedRxBytes:     0,
 				SpeedTxBytes:     0,
 				LastSpeedRxBytes: stats.RxBytes,
-				LastSpeedTxBytes: stats.RxBytes,
+				LastSpeedTxBytes: stats.TxBytes,
 			}
 			m.deltaStatsMap[key] = deltaStats
 		} else {
@@ -265,8 +266,17 @@ func (m *Monitor) PrintStats() {
 
 		stats, exists := printStatsMap[key]
 		if !exists {
-			stats = &HostDeltaStats{}
-			printStatsMap[key] = stats
+			printStatsMap[key] = &HostDeltaStats{
+				LastSpeedRxBytes: v.LastSpeedRxBytes,
+				LastSpeedTxBytes: v.LastSpeedTxBytes,
+				SpeedRxBytes:     v.SpeedRxBytes,
+				SpeedTxBytes:     v.SpeedTxBytes,
+
+				LastTotalRxBytes: v.LastTotalRxBytes,
+				LastTotalTxBytes: v.LastTotalTxBytes,
+				RangeRxBytes:     v.RangeRxBytes,
+				RangeTxBytes:     v.RangeTxBytes,
+			}
 		} else {
 			stats.LastSpeedRxBytes += v.LastSpeedRxBytes
 			stats.LastSpeedTxBytes += v.LastSpeedTxBytes

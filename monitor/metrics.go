@@ -10,8 +10,8 @@ import (
 
 type PrometheusCollector struct {
 	monitor     *Monitor
-	RangeRxDesc *prometheus.Desc
-	RangeTxDesc *prometheus.Desc
+	rangeRxDesc *prometheus.Desc
+	rangeTxDesc *prometheus.Desc
 	speedRxDesc *prometheus.Desc
 	speedTxDesc *prometheus.Desc
 }
@@ -19,13 +19,13 @@ type PrometheusCollector struct {
 func NewPrometheusCollector(m *Monitor) *PrometheusCollector {
 	return &PrometheusCollector{
 		monitor: m,
-		RangeRxDesc: prometheus.NewDesc(
+		rangeRxDesc: prometheus.NewDesc(
 			"probpf_rx_bytes",
 			"Number of bytes received since last scrape",
 			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
 			nil,
 		),
-		RangeTxDesc: prometheus.NewDesc(
+		rangeTxDesc: prometheus.NewDesc(
 			"probpf_tx_bytes",
 			"Number of bytes transmitted since last scrape",
 			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
@@ -47,8 +47,8 @@ func NewPrometheusCollector(m *Monitor) *PrometheusCollector {
 }
 
 func (c *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.RangeRxDesc
-	ch <- c.RangeTxDesc
+	ch <- c.rangeRxDesc
+	ch <- c.rangeTxDesc
 	ch <- c.speedRxDesc
 	ch <- c.speedTxDesc
 }
@@ -56,9 +56,9 @@ func (c *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
 func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	// 从 monitor 获取当前缓存的数据
 	c.monitor.deltaStatsMu.RLock()
-	currentStats := make(map[HostKey]HostDeltaStats, len(c.monitor.deltaStatsMap))
+	currentStats := make(map[HostKey]*HostDeltaStats, len(c.monitor.deltaStatsMap))
 	for k, v := range c.monitor.deltaStatsMap {
-		currentStats[k] = HostDeltaStats{
+		currentStats[k] = &HostDeltaStats{
 			RangeRxBytes: v.RangeRxBytes,
 			RangeTxBytes: v.RangeTxBytes,
 			SpeedRxBytes: v.SpeedRxBytes,
@@ -94,7 +94,7 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		// 输出时间区间统计
 		if stats.RangeRxBytes > 0 {
 			ch <- prometheus.MustNewConstMetric(
-				c.RangeRxDesc,
+				c.rangeRxDesc,
 				prometheus.GaugeValue,
 				float64(stats.RangeRxBytes),
 				labels...,
@@ -102,7 +102,7 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 		if stats.RangeTxBytes > 0 {
 			ch <- prometheus.MustNewConstMetric(
-				c.RangeTxDesc,
+				c.rangeTxDesc,
 				prometheus.GaugeValue,
 				float64(stats.RangeTxBytes),
 				labels...,
@@ -110,16 +110,25 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		// 计算速度
+		speedRx := float64(stats.SpeedRxBytes)
+		if speedRx < 0 {
+			speedRx = 0
+		}
 		ch <- prometheus.MustNewConstMetric(
 			c.speedRxDesc,
 			prometheus.GaugeValue,
-			float64(stats.SpeedRxBytes),
+			speedRx,
 			labels[:len(labels)-1]...,
 		)
+
+		speedTx := float64(stats.SpeedTxBytes)
+		if speedTx < 0 {
+			speedTx = 0
+		}
 		ch <- prometheus.MustNewConstMetric(
 			c.speedTxDesc,
 			prometheus.GaugeValue,
-			float64(stats.SpeedTxBytes),
+			speedTx,
 			labels[:len(labels)-1]...,
 		)
 	}
