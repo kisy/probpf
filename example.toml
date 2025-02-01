@@ -4,8 +4,11 @@ interface = "br0"
 # Prometheus configuration
 prometheus_addr = ":9092"
 
-# Monitor configuration
+# Sync interval configuration
 sync_interval = 10
+
+# Total interval configuration
+total_interval = 60
 
 # XDP mode configuration (auto, generic, driver, offload)
 xdp_mode = "generic"

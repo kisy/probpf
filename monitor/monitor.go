@@ -38,11 +38,15 @@ type HostStats struct {
 
 // HostDelta 跟踪连接活动
 type HostDeltaStats struct {
-	RangeRxBytes uint64 // 两次差值接收字节数
-	RangeTxBytes uint64 // 两次差值发送字节数
-	LastRxBytes  uint64 // 上次累计接收字节数
-	LastTxBytes  uint64 // 上次累计发送字节数
-	UpdateTime   time.Time
+	RangeRxBytes     uint64    // 两次差值接收字节数
+	RangeTxBytes     uint64    // 两次差值发送字节数
+	SpeedRxBytes     uint64    // 实时速率接收字节数
+	SpeedTxBytes     uint64    // 实时速率发送字节数
+	LastTotalRxBytes uint64    // 上次计算统计接收字节数
+	LastTotalTxBytes uint64    // 上次计算统计发送字节数
+	LastSpeedRxBytes uint64    // 上次计算速率接收字节数
+	LastSpeedTxBytes uint64    // 上次计算速率发送字节数
+	TotalUpdateTime  time.Time // 上次计算统计时间
 }
 
 type Monitor struct {
@@ -56,7 +60,11 @@ type Monitor struct {
 	deltaStatsMu   sync.RWMutex
 	lastBpfLen     int
 	lastUpdateTime time.Time
+	lastTotalTime  time.Time
 	HostNameMap    map[string]string
+	TotalInterval  int
+	SyncInterval   int
+	CleanInterval  int
 }
 
 // 获取协议名称
@@ -177,7 +185,13 @@ func NewMonitor(cfg config.Config) (*Monitor, error) {
 		ifaceIndex:    ifaceIndex, // 保存接口索引
 		deltaStatsMap: make(map[HostKey]*HostDeltaStats),
 		lastBpfLen:    0,
+
+		lastTotalTime: time.Now(),
+
 		HostNameMap:   cfg.Hostname,
+		TotalInterval: cfg.TotalInterval,
+		SyncInterval:  cfg.SyncInterval,
+		CleanInterval: cfg.CleanInterval,
 	}, nil
 }
 
@@ -193,30 +207,56 @@ func (m *Monitor) UpdateStats() {
 
 	m.deltaStatsMu.Lock()
 	m.lastUpdateTime = now
+
+	if now.Sub(m.lastTotalTime) >= time.Duration(m.TotalInterval)*time.Second {
+		m.lastTotalTime = now
+	}
+
 	for iter.Next(&key, &stats) {
 		lastBpfLen++
-		deltaStats, exists := m.deltaStatsMap[key]
-		if !exists {
+
+		deltaStats, deltaExists := m.deltaStatsMap[key]
+
+		if !deltaExists {
 			deltaStats = &HostDeltaStats{
-				RangeRxBytes: stats.RxBytes,
-				RangeTxBytes: stats.TxBytes,
-				LastRxBytes:  stats.RxBytes,
-				LastTxBytes:  stats.TxBytes,
-				UpdateTime:   now,
+				RangeRxBytes:     stats.RxBytes,
+				RangeTxBytes:     stats.TxBytes,
+				LastTotalRxBytes: stats.RxBytes,
+				LastTotalTxBytes: stats.TxBytes,
+				TotalUpdateTime:  now,
+
+				SpeedRxBytes:     0,
+				SpeedTxBytes:     0,
+				LastSpeedRxBytes: stats.RxBytes,
+				LastSpeedTxBytes: stats.RxBytes,
 			}
 			m.deltaStatsMap[key] = deltaStats
-		} else if stats.RxBytes != deltaStats.LastRxBytes || stats.TxBytes != deltaStats.LastTxBytes {
-			deltaStats.RangeRxBytes = stats.RxBytes - deltaStats.LastRxBytes
-			deltaStats.RangeTxBytes = stats.TxBytes - deltaStats.LastTxBytes
-			deltaStats.LastRxBytes = stats.RxBytes
-			deltaStats.LastTxBytes = stats.TxBytes
-			deltaStats.UpdateTime = now
-		} else if now.Sub(deltaStats.UpdateTime) > 60*time.Second {
+		} else {
+			deltaStats.SpeedRxBytes = (stats.RxBytes - deltaStats.LastSpeedRxBytes) / uint64(m.SyncInterval)
+			deltaStats.SpeedTxBytes = (stats.TxBytes - deltaStats.LastSpeedTxBytes) / uint64(m.SyncInterval)
+			deltaStats.LastSpeedRxBytes = stats.RxBytes
+			deltaStats.LastSpeedTxBytes = stats.TxBytes
+		}
+
+		// 不需要更新统计数据
+		if m.lastTotalTime != now {
+			continue
+		}
+
+		// 更新统计数据
+		if stats.RxBytes != deltaStats.LastTotalRxBytes || stats.TxBytes != deltaStats.LastTotalTxBytes {
+			deltaStats.RangeRxBytes = stats.RxBytes - deltaStats.LastTotalRxBytes
+			deltaStats.RangeTxBytes = stats.TxBytes - deltaStats.LastTotalTxBytes
+			deltaStats.LastTotalRxBytes = stats.RxBytes
+			deltaStats.LastTotalTxBytes = stats.TxBytes
+			deltaStats.TotalUpdateTime = now
+		} else if now.Sub(deltaStats.TotalUpdateTime) > time.Duration(m.CleanInterval)*time.Second {
 			// 清理过期连接
 			delete(m.deltaStatsMap, key)
 			m.stats.Delete(&key)
 		}
 	}
+
 	m.lastBpfLen = lastBpfLen
 	m.deltaStatsMu.Unlock()
 }
@@ -227,8 +267,8 @@ func (m *Monitor) PrintStats() {
 	latestStats := make(map[HostKey]HostStats, len(m.deltaStatsMap))
 	for k, v := range m.deltaStatsMap {
 		latestStats[k] = HostStats{
-			RxBytes: v.LastRxBytes,
-			TxBytes: v.LastTxBytes,
+			RxBytes: v.LastSpeedRxBytes,
+			TxBytes: v.LastSpeedTxBytes,
 		}
 	}
 	lastBpfLen := m.lastBpfLen

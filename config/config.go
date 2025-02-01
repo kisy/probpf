@@ -12,6 +12,8 @@ type Config struct {
 	Interface      string `toml:"interface"`
 	PrometheusAddr string `toml:"prometheus_addr"`
 	SyncInterval   int    `toml:"sync_interval"`
+	TotalInterval  int    `toml:"total_interval"`
+	CleanInterval  int    `toml:"clean_interval"`
 	XDPMode        string `toml:"xdp_mode"`
 	Hostname       map[string]string
 }
@@ -22,6 +24,8 @@ func DefaultConfig() Config {
 		Interface:      "br0",
 		PrometheusAddr: "",
 		SyncInterval:   5,
+		TotalInterval:  60,
+		CleanInterval:  120,
 		XDPMode:        "generic",
 		Hostname:       map[string]string{},
 	}
@@ -34,7 +38,6 @@ func LoadConfig(path string, cfg *Config) error {
 			return fmt.Errorf("error decoding config file: %v", err)
 		}
 	}
-	fmt.Printf("LoadConfig loaded: %+v\n", cfg)
 	return nil
 }
 

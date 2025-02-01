@@ -3,58 +3,69 @@ package monitor
 import (
 	"fmt"
 	"net"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
-type CachedDelta struct {
-	RxDelta  uint64
-	TxDelta  uint64
-	LastSeen time.Time
-}
-
 type PrometheusCollector struct {
-	monitor *Monitor
-	rxDesc  *prometheus.Desc
-	txDesc  *prometheus.Desc
+	monitor     *Monitor
+	RangeRxDesc *prometheus.Desc
+	RangeTxDesc *prometheus.Desc
+	speedRxDesc *prometheus.Desc
+	speedTxDesc *prometheus.Desc
 }
 
 func NewPrometheusCollector(m *Monitor) *PrometheusCollector {
 	return &PrometheusCollector{
 		monitor: m,
-		rxDesc: prometheus.NewDesc(
+		RangeRxDesc: prometheus.NewDesc(
 			"probpf_rx_bytes",
 			"Number of bytes received since last scrape",
 			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
 			nil,
 		),
-		txDesc: prometheus.NewDesc(
+		RangeTxDesc: prometheus.NewDesc(
 			"probpf_tx_bytes",
 			"Number of bytes transmitted since last scrape",
 			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto", "timestamp"},
+			nil,
+		),
+		speedRxDesc: prometheus.NewDesc(
+			"probpf_rx_speed",
+			"Number of bytes received per second",
+			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto"},
+			nil,
+		),
+		speedTxDesc: prometheus.NewDesc(
+			"probpf_tx_speed",
+			"Number of bytes transmitted per second",
+			[]string{"host", "ip", "port", "remote_ip", "remote_port", "proto"},
 			nil,
 		),
 	}
 }
 
 func (c *PrometheusCollector) Describe(ch chan<- *prometheus.Desc) {
-	ch <- c.rxDesc
-	ch <- c.txDesc
+	ch <- c.RangeRxDesc
+	ch <- c.RangeTxDesc
+	ch <- c.speedRxDesc
+	ch <- c.speedTxDesc
 }
 
 func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	// 从 monitor 获取当前缓存的数据
 	c.monitor.deltaStatsMu.RLock()
-	currentStats := make(map[HostKey]HostStats, len(c.monitor.deltaStatsMap))
+	currentStats := make(map[HostKey]HostDeltaStats, len(c.monitor.deltaStatsMap))
 	for k, v := range c.monitor.deltaStatsMap {
-		currentStats[k] = HostStats{
-			RxBytes: v.RangeRxBytes,
-			TxBytes: v.RangeTxBytes,
+		currentStats[k] = HostDeltaStats{
+			RangeRxBytes: v.RangeRxBytes,
+			RangeTxBytes: v.RangeTxBytes,
+			SpeedRxBytes: v.SpeedRxBytes,
+			SpeedTxBytes: v.SpeedTxBytes,
 		}
 	}
-	timestamp := c.monitor.lastUpdateTime.Unix()
+	timestamp := c.monitor.lastTotalTime.Unix()
 	c.monitor.deltaStatsMu.RUnlock()
 
 	for key, stats := range currentStats {
@@ -85,22 +96,37 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		// 输出差值
-		if stats.RxBytes > 0 {
+		if stats.RangeRxBytes > 0 {
 			ch <- prometheus.MustNewConstMetric(
-				c.rxDesc,
+				c.RangeRxDesc,
 				prometheus.GaugeValue,
-				float64(stats.RxBytes),
+				float64(stats.RangeRxBytes),
 				labels...,
 			)
 		}
-		if stats.TxBytes > 0 {
+		if stats.RangeTxBytes > 0 {
 			ch <- prometheus.MustNewConstMetric(
-				c.txDesc,
+				c.RangeTxDesc,
 				prometheus.GaugeValue,
-				float64(stats.TxBytes),
+				float64(stats.RangeTxBytes),
 				labels...,
 			)
 		}
+
+		// 计算速度
+		ch <- prometheus.MustNewConstMetric(
+			c.speedRxDesc,
+			prometheus.GaugeValue,
+			float64(stats.SpeedRxBytes),
+			labels[:len(labels)-1]...,
+		)
+		ch <- prometheus.MustNewConstMetric(
+			c.speedTxDesc,
+			prometheus.GaugeValue,
+			float64(stats.SpeedTxBytes),
+			labels[:len(labels)-1]...,
+		)
+
 	}
 }
 

@@ -31,10 +31,9 @@ func main() {
 	flag.StringVar(&cfg.Interface, "i", defaultCfg.Interface, "Interface to monitor")
 	flag.StringVar(&cfg.PrometheusAddr, "p", defaultCfg.PrometheusAddr, "Prometheus metrics address")
 	flag.IntVar(&cfg.SyncInterval, "s", defaultCfg.SyncInterval, "Stats sync interval in seconds")
+	flag.IntVar(&cfg.TotalInterval, "t", defaultCfg.TotalInterval, "Total stats interval in seconds")
 	flag.StringVar(&cfg.XDPMode, "x", defaultCfg.XDPMode, "XDP mode (auto, generic, driver, offload)")
 	flag.Parse()
-
-	fmt.Printf("cfgFile: %s\n", cfgFile)
 
 	// Load configuration from file if specified
 	if cfgFile != "" {
@@ -46,8 +45,6 @@ func main() {
 		}
 	}
 
-	fmt.Printf("Configuration: %+v\n", cfg)
-
 	// Validate interface name
 	if cfg.Interface == "" {
 		fmt.Println("Please specify interface with -i flag or in config file")
@@ -58,6 +55,14 @@ func main() {
 		fmt.Println("Sync interval must be greater than 0")
 		os.Exit(1)
 	}
+
+	// Set default clean interval to 3 times the total interval
+	cfg.CleanInterval = cfg.TotalInterval * 3
+	if cfg.CleanInterval < 60 {
+		cfg.CleanInterval = 60
+	}
+
+	
 
 	fmt.Println("Starting monitor...")
 
