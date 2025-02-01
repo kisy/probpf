@@ -79,11 +79,7 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 			remoteIP = net.IP(key.RemoteAddr[:]).String()
 		}
 
-		mac := formatMAC(key.LocalMac)
-		localName, exists := c.monitor.HostNameMap[mac]
-		if !exists {
-			localName = mac
-		}
+		localName := c.monitor.GetHostName(key.LocalMac)
 
 		labels := []string{
 			localName,
@@ -95,7 +91,7 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 			fmt.Sprint(timestamp),
 		}
 
-		// 输出差值
+		// 输出时间区间统计
 		if stats.RangeRxBytes > 0 {
 			ch <- prometheus.MustNewConstMetric(
 				c.RangeRxDesc,
@@ -126,7 +122,6 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 			float64(stats.SpeedTxBytes),
 			labels[:len(labels)-1]...,
 		)
-
 	}
 }
 

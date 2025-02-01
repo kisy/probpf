@@ -23,7 +23,7 @@ func DefaultConfig() Config {
 	return Config{
 		Interface:      "br0",
 		PrometheusAddr: "",
-		SyncInterval:   5,
+		SyncInterval:   2,
 		TotalInterval:  60,
 		CleanInterval:  120,
 		XDPMode:        "generic",

@@ -1,5 +1,7 @@
 monitor/monitor_bpf*
 probpf
 probpf-*
+cli.toml
+prome.toml
 config.toml
 config.json

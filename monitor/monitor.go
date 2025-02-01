@@ -91,16 +91,6 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%d B", bytes)
 }
 
-// 格式化 IP:Port
-func formatIPPort(ip net.IP, port uint16) string {
-	return fmt.Sprintf("%s:%d", ip.String(), port)
-}
-
-// 格式化 MAC 地址
-func formatMAC(mac [6]byte) string {
-	return net.HardwareAddr(mac[:]).String()
-}
-
 func NewMonitor(cfg config.Config) (*Monitor, error) {
 	objs := monitorObjects{}
 	if err := loadMonitorObjects(&objs, nil); err != nil {
@@ -264,11 +254,29 @@ func (m *Monitor) UpdateStats() {
 func (m *Monitor) PrintStats() {
 	// 使用缓存的数据
 	m.deltaStatsMu.RLock()
-	latestStats := make(map[HostKey]HostStats, len(m.deltaStatsMap))
+	printStatsMap := make(map[HostKey]*HostDeltaStats, len(m.deltaStatsMap))
+	// 根据 IP 统计
 	for k, v := range m.deltaStatsMap {
-		latestStats[k] = HostStats{
-			RxBytes: v.LastSpeedRxBytes,
-			TxBytes: v.LastSpeedTxBytes,
+		key := HostKey{
+			LocalMac:  k.LocalMac,
+			LocalAddr: k.LocalAddr,
+			IPVer:     k.IPVer,
+		}
+
+		stats, exists := printStatsMap[key]
+		if !exists {
+			stats = &HostDeltaStats{}
+			printStatsMap[key] = stats
+		} else {
+			stats.LastSpeedRxBytes += v.LastSpeedRxBytes
+			stats.LastSpeedTxBytes += v.LastSpeedTxBytes
+			stats.SpeedRxBytes += v.SpeedRxBytes
+			stats.SpeedTxBytes += v.SpeedTxBytes
+
+			stats.LastTotalRxBytes += v.LastTotalRxBytes
+			stats.LastTotalTxBytes += v.LastTotalTxBytes
+			stats.RangeRxBytes += v.RangeRxBytes
+			stats.RangeTxBytes += v.RangeTxBytes
 		}
 	}
 	lastBpfLen := m.lastBpfLen
@@ -289,22 +297,22 @@ func (m *Monitor) PrintStats() {
 
 	infoTable.Append([]string{"Interface", m.ifaceName})
 	infoTable.Append([]string{"Runtime", time.Since(m.startTime).Round(time.Second).String()})
-	infoTable.Append([]string{"Connections", fmt.Sprintf("%d:%d", len(latestStats), lastBpfLen)})
+	infoTable.Append([]string{"Connections", fmt.Sprintf("%d:%d", len(printStatsMap), lastBpfLen)})
 	infoTable.Append([]string{"Last Update", lastUpdate.UTC().Format("2006-01-02 15:04:05")})
 	infoTable.Render()
 	fmt.Println()
 
 	// 创建网络统计数据表格
 	table := tablewriter.NewWriter(os.Stdout)
-	table.SetHeader([]string{"Host Name", "Host Address", "Remote Address", "Protocol", "RX", "TX"})
+	table.SetHeader([]string{"Host Name", "Host Address", "RX", "TX", "RX Speed", "TX Speed"})
 	table.SetBorder(true)
 	table.SetColumnAlignment([]int{
-		tablewriter.ALIGN_LEFT,   // MAC
-		tablewriter.ALIGN_LEFT,   // Local Address
-		tablewriter.ALIGN_LEFT,   // Remote Address
-		tablewriter.ALIGN_CENTER, // Protocol
-		tablewriter.ALIGN_RIGHT,  // RX
-		tablewriter.ALIGN_RIGHT,  // TX
+		tablewriter.ALIGN_LEFT,   // Host Name
+		tablewriter.ALIGN_LEFT,   // IP
+		tablewriter.ALIGN_LEFT,   // RX
+		tablewriter.ALIGN_CENTER, // TX
+		tablewriter.ALIGN_RIGHT,  // RX Speed
+		tablewriter.ALIGN_RIGHT,  // TX Speed
 	})
 	table.SetHeaderAlignment(tablewriter.ALIGN_CENTER)
 	table.SetAutoWrapText(false)
@@ -313,29 +321,24 @@ func (m *Monitor) PrintStats() {
 	table.SetBorders(tablewriter.Border{Left: true, Top: true, Right: true, Bottom: true})
 
 	// 遍历缓存的数据
-	for key, stats := range latestStats {
-		var localIP, remoteIP net.IP
+	for key, stats := range printStatsMap {
+		var localIP net.IP
+
+		hostname := m.GetHostName(key.LocalMac)
+
 		if key.IPVer == 4 {
 			localIP = net.IP(key.LocalAddr[:4])
-			remoteIP = net.IP(key.RemoteAddr[:4])
 		} else {
 			localIP = net.IP(key.LocalAddr[:])
-			remoteIP = net.IP(key.RemoteAddr[:])
-		}
-
-		mac := formatMAC(key.LocalMac)
-		localName, exists := m.HostNameMap[mac]
-		if !exists {
-			localName = mac
 		}
 
 		table.Append([]string{
-			localName,
-			formatIPPort(localIP, key.LocalPort),
-			formatIPPort(remoteIP, key.RemotePort),
-			getProtoName(key.Proto),
-			formatBytes(stats.RxBytes),
-			formatBytes(stats.TxBytes),
+			hostname,
+			localIP.String(),
+			formatBytes(stats.LastSpeedRxBytes),
+			formatBytes(stats.LastSpeedTxBytes),
+			formatBytes(stats.SpeedRxBytes) + "/s",
+			formatBytes(stats.SpeedTxBytes) + "/s",
 		})
 	}
 
@@ -369,4 +372,12 @@ func (m *Monitor) Close() {
 			QdiscType: "clsact",
 		})
 	}
+}
+
+func (m *Monitor) GetHostName(mac [6]byte) string {
+	name, exists := m.HostNameMap[net.HardwareAddr(mac[:]).String()]
+	if !exists {
+		return net.HardwareAddr(mac[:]).String()
+	}
+	return name
 }
