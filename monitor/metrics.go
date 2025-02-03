@@ -59,10 +59,11 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 	currentStats := make(map[HostKey]*HostDeltaStats, len(c.monitor.deltaStatsMap))
 	for k, v := range c.monitor.deltaStatsMap {
 		currentStats[k] = &HostDeltaStats{
-			RangeRxBytes: v.RangeRxBytes,
-			RangeTxBytes: v.RangeTxBytes,
-			SpeedRxBytes: v.SpeedRxBytes,
-			SpeedTxBytes: v.SpeedTxBytes,
+			RangeRxBytes:    v.RangeRxBytes,
+			RangeTxBytes:    v.RangeTxBytes,
+			SpeedRxBytes:    v.SpeedRxBytes,
+			SpeedTxBytes:    v.SpeedTxBytes,
+			TotalUpdateTime: v.TotalUpdateTime,
 		}
 	}
 	timestamp := c.monitor.lastTotalTime.Unix()
@@ -110,25 +111,16 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		// 计算速度
-		speedRx := float64(stats.SpeedRxBytes)
-		if speedRx < 0 {
-			speedRx = 0
-		}
 		ch <- prometheus.MustNewConstMetric(
 			c.speedRxDesc,
 			prometheus.GaugeValue,
-			speedRx,
+			float64(stats.SpeedRxBytes),
 			labels[:len(labels)-1]...,
 		)
-
-		speedTx := float64(stats.SpeedTxBytes)
-		if speedTx < 0 {
-			speedTx = 0
-		}
 		ch <- prometheus.MustNewConstMetric(
 			c.speedTxDesc,
 			prometheus.GaugeValue,
-			speedTx,
+			float64(stats.SpeedTxBytes),
 			labels[:len(labels)-1]...,
 		)
 	}

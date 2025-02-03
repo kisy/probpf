@@ -235,11 +235,12 @@ func (m *Monitor) UpdateStats() {
 		}
 
 		// 更新统计数据
-		if stats.RxBytes != deltaStats.LastTotalRxBytes || stats.TxBytes != deltaStats.LastTotalTxBytes {
-			deltaStats.RangeRxBytes = stats.RxBytes - deltaStats.LastTotalRxBytes
-			deltaStats.RangeTxBytes = stats.TxBytes - deltaStats.LastTotalTxBytes
-			deltaStats.LastTotalRxBytes = stats.RxBytes
-			deltaStats.LastTotalTxBytes = stats.TxBytes
+		deltaStats.RangeRxBytes = stats.RxBytes - deltaStats.LastTotalRxBytes
+		deltaStats.RangeTxBytes = stats.TxBytes - deltaStats.LastTotalTxBytes
+		deltaStats.LastTotalRxBytes = stats.RxBytes
+		deltaStats.LastTotalTxBytes = stats.TxBytes
+
+		if deltaStats.RangeRxBytes > 0 || deltaStats.RangeTxBytes > 0 {
 			deltaStats.TotalUpdateTime = now
 		} else if now.Sub(deltaStats.TotalUpdateTime) > time.Duration(m.CleanInterval)*time.Second {
 			// 清理过期连接
