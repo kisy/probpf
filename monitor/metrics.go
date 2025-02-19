@@ -111,18 +111,22 @@ func (c *PrometheusCollector) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		// 计算速度
-		ch <- prometheus.MustNewConstMetric(
-			c.speedRxDesc,
-			prometheus.GaugeValue,
-			float64(stats.SpeedRxBytes),
-			labels[:len(labels)-1]...,
-		)
-		ch <- prometheus.MustNewConstMetric(
-			c.speedTxDesc,
-			prometheus.GaugeValue,
-			float64(stats.SpeedTxBytes),
-			labels[:len(labels)-1]...,
-		)
+		if stats.SpeedRxBytes > 0 {
+			ch <- prometheus.MustNewConstMetric(
+				c.speedRxDesc,
+				prometheus.GaugeValue,
+				float64(stats.SpeedRxBytes),
+				labels[:len(labels)-1]...,
+			)
+		}
+		if stats.SpeedTxBytes > 0 {
+			ch <- prometheus.MustNewConstMetric(
+				c.speedTxDesc,
+				prometheus.GaugeValue,
+				float64(stats.SpeedTxBytes),
+				labels[:len(labels)-1]...,
+			)
+		}
 	}
 }
 

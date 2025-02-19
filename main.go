@@ -56,13 +56,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set default clean interval to 3 times the total interval
-	cfg.CleanInterval = cfg.TotalInterval * 3
-	if cfg.CleanInterval < 60 {
-		cfg.CleanInterval = 60
-	}
-
-	
+	// Set default clean interval
+	cfg.CleanInterval = cfg.TotalInterval + 60
 
 	fmt.Println("Starting monitor...")
 
