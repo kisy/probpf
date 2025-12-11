@@ -287,18 +287,21 @@ document.addEventListener('alpine:init', () => {
             let html = ip;
             
             // Smart IPv6 Truncation
-            if (ip.includes(':') && ip.length > 15) { // Truncate longer IPv6
+            // Smart IPv6 Truncation
+            if (ip.includes(':')) {
                 const parts = ip.split(':');
-                // Simple logic: Keep first 2 segments and last 1 segment
-                if (parts.length > 3) {
+                // Truncate only if more than 4 parts
+                if (parts.length > 4) {
                      const head = parts.slice(0, 2).join(':');
-                     const tail = parts[parts.length - 1];
-                     const isDoubleColon = parts[parts.length - 2] === '';
-                     const tailSep = isDoubleColon ? '::' : ':';
+                     const tailParts = parts.slice(-2);
+                     let tail = tailParts.join(':');
+                     // Fix for :: at start of tail (e.g. ...::xxxx)
+                     if (tailParts[0] === '') tail = ':' + tail;
+                     
                      html = `<div class="ip-smart">
-                               <span class="ip-part-head">${head}:</span>
+                               <span class="ip-part-head">${head}</span>
                                <span class="ip-part-mid">~</span>
-                                <span class="ip-part-tail">${tailSep}${tail}</span>
+                                <span class="ip-part-tail">${tail}</span>
                              </div>`;
                 }
             }
