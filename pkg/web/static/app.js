@@ -305,7 +305,7 @@ document.addEventListener('alpine:init', () => {
 
             if (linkable) {
                 const url = this.ipProvider + ip;
-                html = `<a href="${url}" target="_blank" class="ip-link">${html}</a>`;
+                html = `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ip-link">${html}</a>`;
             }
 
             return `<div class="ip-cell">
