@@ -1,0 +1,353 @@
+/* Custom styles on top of Pico.css */
+
+:root {
+  --pico-font-size: 14px;
+}
+
+/* Relax container constraints to utilize screen space (Fluid except on huge screens) */
+/* Relax container constraints to utilize screen space (Fluid except on huge screens) */
+@media (min-width: 768px) {
+    .container {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        margin: 0 !important;
+    }
+}
+@media (min-width: 1600px) {
+    .container {
+        max-width: 1536px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding-left: 0 !important; /* Optional: Reset padding if standard container padding is preferred, or keep 2rem */
+        padding-right: 0 !important;
+    }
+}
+
+.text-right {
+    text-align: right;
+}
+
+/* Header Layout */
+/* Header Layout */
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.header-title-block {
+    display: flex;
+    flex-direction: column;
+}
+
+.header-switches {
+    display: flex; 
+    gap: 10px; 
+    align-items: center;
+}
+
+.global-stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap; 
+    justify-content: flex-end;
+    margin-left: auto; /* Push to right on all screens */
+}
+
+.stat-box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end; /* Right align content */
+    min-width: 140px;      /* Fixed minimum width to prevent jitter */
+}
+
+.controls-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: var(--pico-spacing);
+}
+
+/* IP List Layout (Independent Row) */
+.ip-list-block {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-start; /* Default align left */
+}
+
+@media (max-width: 768px) {
+    .header-bar {
+        flex-direction: row; /* Allow side-by-side */
+        flex-wrap: wrap;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .header-title-block {
+        width: auto;
+        flex: 1; /* Take available left space */
+        min-width: 0; /* Prevent flex overflow */
+        display: flex;
+        flex-direction: row; /* Ensure internal children (List Page) are horizontal */
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .header-switches {
+        width: auto;
+        flex-direction: column; /* Stack switches vertically on right */
+        align-items: flex-end; /* Align to right edge */
+        gap: 4px;
+        flex-shrink: 0;
+    }
+
+    .header-switches select {
+        width: auto;
+        font-size: 0.75rem !important;
+        padding: 2px 20px 2px 6px !important;
+    }
+    
+    .header-switches label {
+        display: flex;
+        flex-direction: row-reverse; /* Switch Right, Text Left */
+        align-items: center;
+        gap: 8px;
+    }
+    
+    .global-stats {
+        width: 100%;
+        justify-content: flex-end;
+        margin-top: 5px;
+        order: 3; /* Ensure it drops to bottom */
+        gap: 10px; /* Reduce gap for mobile to fit dual stats */
+    }
+
+    .global-stats .stat-box:first-child {
+        width: 100%;
+        margin-bottom: 5px;
+    }
+
+    /* Mobile IP List Logic */
+    .ip-list-block:not(.expanded) .ip-item-box:nth-of-type(n+2) {
+        display: none;
+    }
+    .ip-list-block.expanded {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    /* Force table to not be like tables anymore (Mobile Cards) */
+    table, thead, tbody, th, td, tr {
+        display: block;
+    }
+    thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    tr {
+        margin-bottom: 1rem;
+        border: 1px solid var(--pico-muted-border-color);
+        border-radius: var(--pico-border-radius);
+        background: var(--pico-card-background-color);
+        box-shadow: var(--pico-card-box-shadow);
+    }
+    td {
+        border: none;
+        border-bottom: 1px solid var(--pico-muted-border-color);
+        position: relative;
+        padding-left: 40% !important;
+        text-align: right;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+    }
+    td:last-child { border-bottom: none; }
+    td:before {
+        position: absolute;
+        left: 10px;
+        width: 35%;
+        padding-right: 10px;
+        white-space: nowrap;
+        text-align: left;
+        font-weight: bold;
+        color: var(--pico-muted-color);
+        content: attr(data-label);
+    }
+    /* Specific adjustments */
+    td[data-label="RX"], td[data-label="TX"] {
+       display: block !important;
+       padding-top: 10px;
+       padding-bottom: 10px;
+       justify-content: unset;
+    }
+    .ip-cell { width: 100%; justify-content: flex-end; }
+}
+
+/* Table Enhancements */
+td, th {
+    vertical-align: middle !important;
+}
+
+/* Stats Column Alignment */
+td[data-label="RX"],
+td[data-label="TX"] {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    min-width: 120px;
+}
+
+/* Sort Indicators */
+th {
+    cursor: pointer;
+    user-select: none;
+}
+th.active, th.sort-desc.active { color: var(--pico-primary); }
+th.active::after, th.sort-desc.active::after { content: " ↓"; }
+th.sort-asc.active::after { content: " ↑"; }
+
+.sub-sort {
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 0.9em;
+    color: var(--pico-muted-color);
+}
+.sub-sort.active {
+    color: var(--pico-primary);
+    font-weight: bold;
+}
+
+/* Dual Stats styling */
+.speed-val,
+.stat-value {
+    color: var(--pico-primary);
+    font-weight: bold;
+}
+.stat-session {
+    color: var(--pico-color); 
+    font-weight: 500;
+}
+.stat-global {
+    color: var(--pico-muted-color);
+    font-size: 0.85em;
+}
+
+.copy-btn {
+  cursor: pointer;
+  color: var(--pico-muted-color);
+  display: flex; /* For SVG alignment */
+  align-items: center;
+  padding: 2px;
+  border-radius: 4px;
+  transition: all 0.2s;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.copy-btn:hover {
+  color: var(--pico-primary);
+  background-color: var(--pico-card-background-color); 
+}
+
+.copy-btn:active {
+  background-color: var(--pico-muted-border-color);
+}
+
+/* IP Display & Smart Truncation */
+.ip-smart {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.ip-part-head {
+  color: inherit;
+}
+.ip-part-mid {
+  color: var(--pico-muted-color);
+  padding: 0 1px;
+}
+.ip-part-tail {
+  color: inherit;
+}
+
+/* IP Cell Container (IP + Copy Button) */
+.ip-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ip-link {
+  color: var(--pico-primary);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--pico-muted-border-color);
+  transition: all 0.2s;
+}
+.ip-link:hover {
+  text-decoration: underline;
+  border-bottom-style: solid;
+}
+
+/* IP Item Box in List */
+.ip-item-box {
+    display: inline-block; /* Natural width */
+    background: var(--pico-card-background-color);
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--pico-muted-border-color);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+/* Toggle Button (More/Less) - Subtle Text Link Style */
+.ip-toggle-btn {
+    appearance: none;
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+    font-size: 0.8rem;
+    color: var(--pico-primary);
+    cursor: pointer;
+    text-decoration: none;
+    display: none; /* Hidden on Desktop by default */
+    margin-top: 4px;
+}
+.ip-toggle-btn:hover {
+    text-decoration: underline;
+    background: transparent;
+}
+.ip-toggle-btn:focus {
+    box-shadow: none;
+}
+
+@media (max-width: 768px) {
+    .ip-toggle-btn {
+        display: inline-block;
+    }
+}
+
+/* Utility: Mobile View Only */
+.mobile-view-only {
+    display: none;
+}
+@media (max-width: 768px) {
+    .mobile-view-only {
+        display: block;
+    }
+}

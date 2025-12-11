@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProBPF Client Detail</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="//unpkg.com/alpinejs" defer></script>
+</head>
+<body x-data="detailApp">
+
+    <main class="container">
+        
+        <!-- Header -->
+        <div class="header-bar">
+            <div class="header-title-block">
+                <hgroup>
+                    <h1 x-text="client.name || 'Client Details'"></h1>
+                    <p style="font-size: 0.9rem; color: var(--pico-muted-color);">
+                        <span x-text="client.mac">Loading...</span><br>
+                        <span x-show="client.start_time" style="font-size: 0.8rem;">Started: <span x-text="new Date(client.start_time).toLocaleString()"></span></span>
+                    </p>
+                </hgroup>
+            </div>
+
+            <div class="header-switches">
+                <select id="ip-provider" name="ip_provider" x-model="ipProvider" @change="setProvider($event.target.value)" style="padding: 2px 24px 2px 8px; font-size: 0.8rem; height: auto; margin-bottom: 0; width: auto; background-position: right 0.5rem center; border-color: var(--pico-muted-border-color);">
+                    <option value="https://ipinfo.io/">ipinfo.io</option>
+                    <option value="https://api.ipapi.is/?q=">ipapi.is</option>
+                    <option value="https://api.ip.sb/geoip/">ip.sb</option>
+                    <option value="https://ipwho.is/">ipwho.is</option>
+                </select>
+                <label style="margin-bottom: 0; white-space: nowrap; user-select: none; cursor: pointer;">
+                    <input type="checkbox" id="switch-auto-refresh-detail" name="auto_refresh" role="switch" x-model="autoRefresh">
+                    <span x-text="autoRefresh ? 'Auto-Refresh' : 'Paused'" style="font-size: 0.8rem;"></span>
+                </label>
+                <label style="margin-bottom: 0; white-space: nowrap; user-select: none; cursor: pointer;" title="Toggle Dark/Light Mode">
+                    <input type="checkbox" id="switch-theme-detail" name="theme_toggle" role="switch" @click="toggleTheme()" :checked="theme === 'dark'">
+                    <span x-text="theme === 'dark' ? 'Dark' : 'Light'" style="font-size: 0.8rem;"></span>
+                </label>
+            </div>
+            
+            <div class="global-stats">
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Active</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" x-text="client.active_connections || 0"></div>
+                </div>
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Download</div>
+                    <div class="stat-value" x-text="'↓ ' + formatSpeed(client.download_speed || 0)"></div>
+                    <div class="stat-session" title="Session" x-text="formatBytes(client.session_download || 0)"></div>
+                    <div class="stat-global" title="Total" x-text="formatBytes(client.total_download || 0)"></div>
+                </div>
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Upload</div>
+                    <div class="stat-value" x-text="'↑ ' + formatSpeed(client.upload_speed || 0)"></div>
+                    <div class="stat-session" title="Session" x-text="formatBytes(client.session_upload || 0)"></div>
+                    <div class="stat-global" title="Total" x-text="formatBytes(client.total_upload || 0)"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IPs List (Independent Row) -->
+        <div x-data="{ expanded: false }" style="width: 100%; margin-bottom: 20px;">
+            <div class="ip-list-block" :class="{ 'expanded': expanded }">
+                    <template x-for="ip in uniqueIPs" :key="ip">
+                    <div class="ip-item-box" x-html="renderResponsiveIP(ip, false)"></div>
+                    </template>
+                    
+                    <!-- Mobile Toggle Button -->
+                    <button class="ip-toggle-btn" 
+                        x-show="uniqueIPs.length > 1" 
+                        @click="expanded = !expanded" 
+                        x-text="expanded ? 'Show Less' : 'Show More (' + (uniqueIPs.length - 1) + ' more)'"></button>
+            </div>
+            <span x-show="uniqueIPs.length === 0" style="font-style:italic; color: var(--pico-muted-color); font-size: 0.8rem; display: block; text-align: right;">No active IPs</span>
+        </div>
+
+        <!-- Controls (Back + Reset) -->
+        <div class="controls-bar">
+            <div>
+                <a href="/clients" role="button" class="secondary outline">← Back</a>
+            </div>
+            <div style="text-align: right; display: flex; gap: 8px;">
+                 <button class="outline contrast" @click="resetSession()" style="font-size: 0.8rem;">Reset</button>
+                 <button class="outline secondary" @click="resetGlobal()" style="font-size: 0.8rem;">Reset Global</button>
+            </div>
+        </div>
+
+        <!-- Filters -->
+         <details style="margin-top: 20px; border-top: 1px solid var(--pico-muted-border-color); padding-top: 20px;">
+            <summary>Filters</summary>
+            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="filter-protocol" name="protocol" placeholder="Protocol" x-model="filterProtocol" style="margin-bottom: 0; flex: 1; min-width: 80px;">
+                <input type="text" id="filter-remote-ip" name="remote_ip" placeholder="Remote IP" x-model="filterRemoteIP" style="margin-bottom: 0; flex: 2; min-width: 120px;">
+                <input type="text" id="filter-remote-port" name="remote_port" placeholder="Port" x-model="filterRemotePort" style="margin-bottom: 0; flex: 1; min-width: 80px;">
+                <button class="secondary outline" @click="clearFilters()" style="width: auto; margin-bottom: 0; padding: 6px 12px; font-size: 0.9rem;">Clear</button>
+            </div>
+         </details>
+         <div style="margin-bottom: 20px;"></div>
+
+        <!-- Mobile Sort -->
+        <div class="mobile-view-only" style="margin-bottom: 10px;">
+            <select id="mobile-sort-detail" name="mobile_sort" @change="setMobileSort($event.target.value)" style="margin-bottom: 0;">
+                <option value="session_download:desc" :selected="sortBy=='session_download' && sortDesc">Download Speed (High to Low)</option>
+                <option value="session_upload:desc" :selected="sortBy=='session_upload' && sortDesc">Upload Speed (High to Low)</option>
+                <option value="active_connections:desc" :selected="sortBy=='active_connections' && sortDesc">Active Connections (High to Low)</option>
+                <option value="session_duration:desc" :selected="sortBy=='session_duration' && sortDesc">Duration (Longest First)</option>
+                <option value="remote_ip:asc" :selected="sortBy=='remote_ip' && !sortDesc">Remote IP (A-Z)</option>
+            </select>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-auto">
+            <table class="striped">
+                <thead>
+                    <tr>
+                        <th @click="setSort('protocol')" :class="{'active': sortBy=='protocol', 'sort-desc': sortDesc}">Proto</th>
+                        <th class="text-right" @click="setSort('remote_ip')" :class="{'active': sortBy=='remote_ip', 'sort-desc': sortDesc}">Remote IP</th>
+                        <th @click="setSort('remote_port')" :class="{'active': sortBy=='remote_port', 'sort-desc': sortDesc}">Port</th>
+                        <th @click="setSort('active_connections')" :class="{'active': sortBy=='active_connections', 'sort-desc': sortDesc}">Conn</th>
+                        <th @click="setSort('session_duration')" :class="{'active': sortBy=='session_duration', 'sort-desc': sortDesc}">Duration</th>
+                        <th class="text-right">
+                            RX <span class="sub-sort" @click.stop="setSort('download_speed')" :class="{'active': sortBy=='download_speed'}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('session_download')" :class="{'active': sortBy=='session_download'}">T</span>
+                        </th>
+                        <th class="text-right">
+                            TX <span class="sub-sort" @click.stop="setSort('upload_speed')" :class="{'active': sortBy=='upload_speed'}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('session_upload')" :class="{'active': sortBy=='session_upload'}">T</span>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="f in filteredFlows" :key="f.remote_ip + ':' + f.remote_port + ':' + f.protocol">
+                        <tr>
+                            <td data-label="Protocol" x-text="f.protocol"></td>
+                            <td class="text-right" data-label="Remote IP" x-html="renderResponsiveIP(f.remote_ip, true)"></td>
+                            <td data-label="Port" x-text="f.remote_port"></td>
+                            <td data-label="Conn" x-text="f.active_connections"></td>
+                            <td data-label="Duration" x-text="formatDuration(f.session_duration)"></td>
+                            <td data-label="RX">
+                                <div class="stat-value" style="font-size: 0.9em;" x-text="'↓ ' + formatSpeed(f.download_speed)"></div>
+                                <div class="stat-session" title="Session" x-text="formatBytes(f.session_download)"></div>
+                                <div class="stat-global" title="Total" x-text="formatBytes(f.total_download)"></div>
+                            </td>
+                            <td data-label="TX">
+                                <div class="stat-value" style="font-size: 0.9em;" x-text="'↑ ' + formatSpeed(f.upload_speed)"></div>
+                                <div class="stat-session" title="Session" x-text="formatBytes(f.session_upload)"></div>
+                                <div class="stat-global" title="Total" x-text="formatBytes(f.total_upload)"></div>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="filteredFlows.length === 0">
+                        <td colspan="7" style="text-align: center;">No active flows</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

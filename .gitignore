@@ -1,0 +1,7 @@
+pkg/bpf/monitor_bpf*
+bin/
+probpf-*
+cli.toml
+prome.toml
+config.toml
+config.json

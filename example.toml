@@ -1,0 +1,20 @@
+# Network interface configuration
+interface = "br0"
+
+# Web server configuration
+http_addr = ":9092"
+
+# Sync interval configuration
+sync_interval = 10
+
+# Total interval configuration
+total_interval = 60
+
+# XDP mode configuration (auto, generic, driver, offload)
+xdp_mode = "generic"
+
+# Hostname configuration
+[hostname]
+"aa:bb:73:f3:08:5d" = "MacMini"
+"cc:dd:73:f3:08:5e" = "iPhone"
+

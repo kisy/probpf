@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ProBPF Monitor</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="//unpkg.com/alpinejs" defer></script>
+</head>
+<body x-data="clientsApp">
+
+    <main class="container">
+        
+        <!-- Header -->
+        <div class="header-bar">
+            <div class="header-title-block">
+                <hgroup>
+                    <h1>ProBPF Monitor</h1>
+                    <p x-show="startTime" style="font-size: 0.8rem; color: var(--pico-muted-color);">
+                        Since: <span x-text="new Date(startTime).toLocaleString()"></span>
+                    </p>
+                </hgroup>
+                <div class="header-switches">
+                    <label style="margin-bottom: 0; white-space: nowrap; user-select: none; cursor: pointer;">
+                        <input type="checkbox" id="switch-auto-refresh" name="auto_refresh" role="switch" x-model="autoRefresh">
+                        <span x-text="autoRefresh ? 'Auto-Refresh' : 'Paused'" style="font-size: 0.8rem;"></span>
+                    </label>
+                    <label style="margin-bottom: 0; white-space: nowrap; user-select: none; cursor: pointer;" title="Toggle Dark/Light Mode">
+                        <input type="checkbox" id="switch-theme" name="theme_toggle" role="switch" @click="toggleTheme()" :checked="theme === 'dark'">
+                        <span x-text="theme === 'dark' ? 'Dark' : 'Light'" style="font-size: 0.8rem;"></span>
+                    </label>
+                </div>
+            </div>
+            
+            <div class="global-stats">
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Active</div>
+                    <div style="font-size: 1.5rem; font-weight: bold;" x-text="global.active_connections || 0"></div>
+                </div>
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Download</div>
+                    <div class="stat-value" x-text="'↓ ' + formatSpeed(global.download_speed || 0)"></div>
+                    <div class="stat-global" x-text="formatBytes(global.total_download || 0)"></div>
+                </div>
+                <div class="stat-box">
+                    <div style="font-size: 0.7rem;">Upload</div>
+                    <div class="stat-value" x-text="'↑ ' + formatSpeed(global.upload_speed || 0)"></div>
+                    <div class="stat-global" x-text="formatBytes(global.total_upload || 0)"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls-bar">
+            <div style="flex: 1; max-width: 400px;">
+                <input type="search" id="client-search" name="search" placeholder="Search Name, IP, MAC..." x-model="search" style="margin-bottom: 0;">
+            </div>
+            <div>
+                 <button class="outline contrast" @click="resetAll()">Reset</button>
+            </div>
+        </div>
+
+        <!-- Mobile Sort -->
+        <div class="mobile-view-only">
+            <select id="mobile-sort" name="mobile_sort" @change="setMobileSort($event.target.value)">
+                <option value="name:asc" :selected="sortBy=='name' && !sortDesc">Name (A-Z)</option>
+                <option value="download_speed:desc" :selected="sortBy=='download_speed' && sortDesc">Download Speed</option>
+                <option value="upload_speed:desc" :selected="sortBy=='upload_speed' && sortDesc">Upload Speed</option>
+                <option value="active_connections:desc" :selected="sortBy=='active_connections' && sortDesc">Active Conns</option>
+            </select>
+        </div>
+
+        <!-- Table -->
+        <div class="overflow-auto">
+            <table class="striped">
+                <thead>
+                    <tr>
+                        <th @click="setSort('name')" :class="{'active': sortBy=='name', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Name</th>
+                        <th @click="setSort('mac')" :class="{'active': sortBy=='mac', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">MAC</th>
+                        <th @click="setSort('started')" :class="{'active': sortBy=='started', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Started</th>
+                        <th @click="setSort('active_connections')" :class="{'active': sortBy=='active_connections', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Active</th>
+                        <th class="text-right">
+                            RX <span class="sub-sort" @click.stop="setSort('download_speed')" :class="{'active': sortBy=='download_speed'}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('total_download')" :class="{'active': sortBy=='total_download'}">T</span>
+                        </th>
+                        <th class="text-right">
+                            TX <span class="sub-sort" @click.stop="setSort('upload_speed')" :class="{'active': sortBy=='upload_speed'}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('total_upload')" :class="{'active': sortBy=='total_upload'}">T</span>
+                        </th>
+                        <th class="text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="c in sortedClients" :key="c.mac">
+                        <tr>
+                            <td data-label="Name" x-text="c.name || '-'"></td>
+                            <td data-label="MAC" x-text="c.mac"></td>
+                            <td data-label="Started" x-text="formatTime(c.start_time)"></td>
+                            <td data-label="Active" x-text="c.active_connections || 0"></td>
+                            <td data-label="RX">
+                                <div class="stat-value" style="font-size: 0.9em;" x-text="'↓ ' + formatSpeed(c.download_speed)"></div>
+                                <div class="stat-global" x-text="formatBytes(c.total_download)"></div>
+                            </td>
+                            <td data-label="TX">
+                                <div class="stat-value" style="font-size: 0.9em;" x-text="'↑ ' + formatSpeed(c.upload_speed)"></div>
+                                <div class="stat-global" x-text="formatBytes(c.total_upload)"></div>
+                            </td>
+                            <td data-label="Action" class="text-right">
+                                <a role="button" class="outline secondary" :href="'/client?mac=' + c.mac" style="padding: 4px 8px; font-size: 0.8rem;">Detail</a>
+                            </td>
+                        </tr>
+                    </template>
+                    <tr x-show="clients.length === 0">
+                        <td colspan="7" style="text-align: center;">No clients found</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </main>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
