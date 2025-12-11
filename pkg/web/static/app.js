@@ -293,10 +293,12 @@ document.addEventListener('alpine:init', () => {
                 if (parts.length > 3) {
                      const head = parts.slice(0, 2).join(':');
                      const tail = parts[parts.length - 1];
+                     const isDoubleColon = parts[parts.length - 2] === '';
+                     const tailSep = isDoubleColon ? '::' : ':';
                      html = `<div class="ip-smart">
                                <span class="ip-part-head">${head}:</span>
                                <span class="ip-part-mid">~</span>
-                                <span class="ip-part-tail">:${tail}</span>
+                                <span class="ip-part-tail">${tailSep}${tail}</span>
                              </div>`;
                 }
             }
