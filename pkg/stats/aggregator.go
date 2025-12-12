@@ -500,23 +500,23 @@ func (a *Aggregator) ResetSessionByMAC(macStr string) error {
 	return nil
 }
 
-func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
+func (a *Aggregator) GetFlowsByMAC(macStr string) ([]model.FlowDetail, []string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	// Update Watch Timestamp
 	a.clientWatchList[macStr] = time.Now()
 
-	// Use a map to aggregate connections (5-tuple) into flows (4-tuple: proto, local, remote, port)
-	// Key: string representation of 4-tuple to handle grouping
+	// Use a map to aggregate connections into flows (3-tuple: proto, remote, port)
+	// Key: string representation of 3-tuple to handle grouping
 	type flowKey struct {
 		Protocol   string
-		LocalIP    string
 		RemoteIP   string
 		RemotePort uint16
 	}
 
 	flowMap := make(map[flowKey]*model.FlowDetail)
+	localIPSet := make(map[string]bool) // Collect all local IPs used
 
 	for k, v := range a.flowCache {
 		// Match by MAC
@@ -558,9 +558,14 @@ func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
 		localIP := formatIP(k.ClientIP, k.IPVer)
 		remoteIP := formatIP(k.RemoteIP, k.IPVer)
 
+		// Collect local IP
+		if localIP != "" && localIP != "-" {
+			localIPSet[localIP] = true
+		}
+
+		// Flow key now only uses protocol, remote_ip, remote_port (3-tuple)
 		fk := flowKey{
 			Protocol:   protocol,
-			LocalIP:    localIP,
 			RemoteIP:   remoteIP,
 			RemotePort: k.RemotePort,
 		}
@@ -568,15 +573,14 @@ func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
 		if _, exists := flowMap[fk]; !exists {
 			flowMap[fk] = &model.FlowDetail{
 				Protocol:          protocol,
-				LocalIP:           localIP,
 				RemoteIP:          remoteIP,
 				RemotePort:        k.RemotePort,
-				Duration:          0, // Will settle min/max strategy
+				Duration:          0,
 				ActiveConnections: 0,
 			}
 		}
 
-		// Aggregation
+		// Aggregation - accumulate stats from all connections to the same remote
 		f := flowMap[fk]
 		f.TotalDownload += v.TxBytes   // Absolute Total
 		f.TotalUpload += v.RxBytes     // Absolute Total
@@ -586,9 +590,7 @@ func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
 		f.UploadSpeed += speed.RxBytes
 		f.ActiveConnections++ // Count this connection
 
-		// Duration: Cap by Client Session Start Time
-		// If Flow started BEFORE this session reset, Duration = Now - SessionStart
-		// If Flow started AFTER this session reset, Duration = Now - FlowStart
+		// Duration: Use the earliest flow start time for this aggregated flow
 		flowStart := a.flowStartTimes[k]
 		clientStart := a.clientStartTimes[macStr]
 
@@ -599,15 +601,15 @@ func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
 
 		if !effectiveStart.IsZero() {
 			dur := uint64(time.Since(effectiveStart).Seconds())
-			if dur > f.SessionDuration {
+			if f.SessionDuration == 0 || dur > f.SessionDuration {
 				f.SessionDuration = dur
 			}
 		}
 
-		// Total Duration (Lifetime)
+		// Total Duration (Lifetime) - use the earliest flow start
 		if !flowStart.IsZero() {
 			dur := uint64(time.Since(flowStart).Seconds())
-			if dur > f.Duration {
+			if f.Duration == 0 || dur > f.Duration {
 				f.Duration = dur
 			}
 		}
@@ -618,7 +620,14 @@ func (a *Aggregator) GetFlowsByMAC(macStr string) []model.FlowDetail {
 		flows = append(flows, *f)
 	}
 
-	return flows
+	// Convert local IP set to sorted array
+	var localIPs []string
+	for ip := range localIPSet {
+		localIPs = append(localIPs, ip)
+	}
+	sort.Strings(localIPs)
+
+	return flows, localIPs
 }
 
 func (a *Aggregator) GetGlobalStats() model.GlobalStats {

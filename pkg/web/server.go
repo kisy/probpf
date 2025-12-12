@@ -77,12 +77,17 @@ func (s *Server) RegisterHandlers() {
 		}
 		mac = strings.TrimSpace(strings.ToLower(mac))
 		w.Header().Set("Content-Type", "application/json")
+
+		flows, localIPs := s.agg.GetFlowsByMAC(mac)
+
 		response := struct {
-			Client *model.ClientStats `json:"client"`
-			Flows  []model.FlowDetail `json:"flows"`
+			Client   *model.ClientStats `json:"client"`
+			Flows    []model.FlowDetail `json:"flows"`
+			LocalIPs []string           `json:"local_ips"`
 		}{
-			Client: s.agg.GetClientWithSession(mac),
-			Flows:  s.agg.GetFlowsByMAC(mac),
+			Client:   s.agg.GetClientWithSession(mac),
+			Flows:    flows,
+			LocalIPs: localIPs,
 		}
 		json.NewEncoder(w).Encode(response)
 	})

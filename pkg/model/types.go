@@ -44,7 +44,6 @@ type ClientStats struct {
 
 type FlowDetail struct {
 	Protocol          string `json:"protocol"`
-	LocalIP           string `json:"local_ip"` // Added for MAC aggregation view
 	RemoteIP          string `json:"remote_ip"`
 	RemotePort        uint16 `json:"remote_port"`
 	TotalDownload     uint64 `json:"total_download"`

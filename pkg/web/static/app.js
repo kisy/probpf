@@ -184,6 +184,7 @@ document.addEventListener('alpine:init', () => {
         mac: new URLSearchParams(window.location.search).get('mac'),
         client: {},
         flows: [],
+        localIPs: [], // Store local IPs from API
         filterProtocol: '',
         filterRemoteIP: '',
         filterRemotePort: '',
@@ -220,21 +221,20 @@ document.addEventListener('alpine:init', () => {
                 const data = await res.json();
                 this.client = data.client || {};
                 this.flows = data.flows || [];
+                this.localIPs = data.local_ips || []; // Receive local IPs from API
             } catch (e) { console.error(e); }
         },
-        // ... (intermediate code for uniqueIPs and filteredFlows, keeping mostly same but need to be careful with range)
-        
+
         get uniqueIPs() {
-            const ips = new Set();
-            this.flows.forEach(f => {
-                if (f.local_ip && f.local_ip !== '-') ips.add(f.local_ip);
-            });
-            return Array.from(ips).sort();
+            // Directly return localIPs from API instead of extracting from flows
+            return this.localIPs;
         },
 
         get filteredFlows() {
             if (!this.flows) return [];
-            
+
+            const keys = [];
+
             let list = this.flows.filter(f => {
                 if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) {
                     return false;
@@ -245,6 +245,9 @@ document.addEventListener('alpine:init', () => {
                 if (this.filterRemotePort && !(f.remote_port + '').includes(this.filterRemotePort)) {
                     return false;
                 }
+
+                f.key = f.protocol + ':' + f.remote_ip + ':' + f.remote_port.toString();
+
                 return true;
             });
 
