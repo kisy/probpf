@@ -1,4 +1,28 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    }
+  ],
   "annotations": {
     "list": [
       {
@@ -517,16 +541,38 @@
           }
         },
         {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(name|mac|Value).*"
+            },
+            "exclude": {
+              "names": [
+                "name 1",
+                "name 2",
+                "name 3",
+                "name 4",
+                "mac 1",
+                "mac 2",
+                "mac 3",
+                "mac 4"
+              ]
+            }
+          }
+        },
+        {
           "id": "organize",
           "options": {
-            "excludeByName": {
-              "Time": true,
-              "name 1": true,
-              "name 2": true,
-              "name 3": true,
-              "name 4": true
+            "excludeByName": {},
+            "indexByName": {
+              "name": 0,
+              "mac": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6
             },
-            "indexByName": {},
             "renameByName": {
               "Value #A": "下载速率",
               "Value #B": "上传速率",
@@ -534,7 +580,7 @@
               "Value #D": "总下载",
               "Value #E": "总上传",
               "mac": "MAC",
-              "name": "设备名称"
+              "name": "Name"
             }
           }
         }

@@ -201,4 +201,4 @@ The project includes a pre-configured Grafana Dashboard (`grafana.json`) featuri
 
 ## License
 
-GPL 3.0
+GPL 2.0

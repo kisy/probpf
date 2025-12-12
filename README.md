@@ -201,4 +201,4 @@ curl http://localhost:9092/metrics
 
 ## 许可证
 
-GPL 3.0
+GPL 2.0
