@@ -83,12 +83,12 @@
                         <th @click="setSort('started')" :class="{'active': sortBy=='started', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Started</th>
                         <th @click="setSort('active_connections')" :class="{'active': sortBy=='active_connections', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Active</th>
                         <th class="text-right">
-                            RX <span class="sub-sort" @click.stop="setSort('download_speed')" :class="{'active': sortBy=='download_speed'}">S</span> |
-                            <span class="sub-sort" @click.stop="setSort('total_download')" :class="{'active': sortBy=='total_download'}">T</span>
+                            RX <span class="sub-sort" @click.stop="setSort('download_speed')" :class="{'active': sortBy=='download_speed', 'sort-asc': sortBy=='download_speed' && !sortDesc, 'sort-desc': sortBy=='download_speed' && sortDesc}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('total_download')" :class="{'active': sortBy=='total_download', 'sort-asc': sortBy=='total_download' && !sortDesc, 'sort-desc': sortBy=='total_download' && sortDesc}">T</span>
                         </th>
                         <th class="text-right">
-                            TX <span class="sub-sort" @click.stop="setSort('upload_speed')" :class="{'active': sortBy=='upload_speed'}">S</span> |
-                            <span class="sub-sort" @click.stop="setSort('total_upload')" :class="{'active': sortBy=='total_upload'}">T</span>
+                            TX <span class="sub-sort" @click.stop="setSort('upload_speed')" :class="{'active': sortBy=='upload_speed', 'sort-asc': sortBy=='upload_speed' && !sortDesc, 'sort-desc': sortBy=='upload_speed' && sortDesc}">S</span> |
+                            <span class="sub-sort" @click.stop="setSort('total_upload')" :class="{'active': sortBy=='total_upload', 'sort-asc': sortBy=='total_upload' && !sortDesc, 'sort-desc': sortBy=='total_upload' && sortDesc}">T</span>
                         </th>
                         <th class="text-right">Action</th>
                     </tr>

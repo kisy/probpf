@@ -226,8 +226,16 @@ th.sort-asc.active::after { content: " ↑"; }
     color: var(--pico-muted-color);
 }
 .sub-sort.active {
-    color: var(--pico-primary);
+    color: var(--pico-secondary);
     font-weight: bold;
+}
+.sub-sort.active.sort-desc::after {
+    content: " ↓";
+    color: var(--pico-secondary);
+}
+.sub-sort.active.sort-asc::after {
+    content: " ↑";
+    color: var(--pico-secondary);
 }
 
 /* Dual Stats styling */

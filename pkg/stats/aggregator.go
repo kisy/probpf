@@ -707,7 +707,7 @@ func (a *Aggregator) getHostName(mac string) string {
 func protoName(p uint8) string {
 	switch p {
 	case 1:
-		return "ICMPv4"
+		return "ICMP"
 	case 6:
 		return "TCP"
 	case 17:
@@ -717,7 +717,7 @@ func protoName(p uint8) string {
 	case 50:
 		return "ESP"
 	case 58:
-		return "ICMPv6"
+		return "ICMP"
 	default:
 		return "OTHER"
 	}

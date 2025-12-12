@@ -192,14 +192,18 @@ document.addEventListener('alpine:init', () => {
         theme: getInitialTheme(),
         
         // Flow Sorting
-        sortBy: 'session_download',
-        sortDesc: true,
+        sortBy: localStorage.getItem('probpf_detail_sortBy') || 'session_download',
+        sortDesc: (localStorage.getItem('probpf_detail_sortDesc') ?? 'true') === 'true',
 
         init() {
             if (!this.mac) {
                 window.location.href = '/clients';
                 return;
             }
+            
+            // Restore defaults if logic failed
+            if (!this.sortBy) this.sortBy = 'session_download';
+            if (this.sortDesc === undefined) this.sortDesc = true;
             
             // Apply Initial Theme
             applyTheme(this.theme);
@@ -232,10 +236,6 @@ document.addEventListener('alpine:init', () => {
             if (!this.flows) return [];
             
             let list = this.flows.filter(f => {
-                if (!f.remote_port) {
-                    f.remote_port = '-';
-                }
-                
                 if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) {
                     return false;
                 };
@@ -274,12 +274,16 @@ document.addEventListener('alpine:init', () => {
                 this.sortBy = col;
                 this.sortDesc = true;
             }
+            localStorage.setItem('probpf_detail_sortBy', this.sortBy);
+            localStorage.setItem('probpf_detail_sortDesc', this.sortDesc);
         },
 
         setMobileSort(val) {
             const [col, dir] = val.split(':');
             this.sortBy = col;
             this.sortDesc = dir === 'desc';
+            localStorage.setItem('probpf_detail_sortBy', this.sortBy);
+            localStorage.setItem('probpf_detail_sortDesc', this.sortDesc);
         },
 
         setProvider(val) {
