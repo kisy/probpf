@@ -65,6 +65,8 @@
         <div class="mobile-view-only">
             <select id="mobile-sort" name="mobile_sort" @change="setMobileSort($event.target.value)">
                 <option value="name:asc" :selected="sortBy=='name' && !sortDesc">Name (A-Z)</option>
+                <option value="total_download:desc" :selected="sortBy=='total_download' && sortDesc">Download Total</option>
+                <option value="total_upload:desc" :selected="sortBy=='total_upload' && sortDesc">Upload Total</option>
                 <option value="download_speed:desc" :selected="sortBy=='download_speed' && sortDesc">Download Speed</option>
                 <option value="upload_speed:desc" :selected="sortBy=='upload_speed' && sortDesc">Upload Speed</option>
                 <option value="active_connections:desc" :selected="sortBy=='active_connections' && sortDesc">Active Conns</option>

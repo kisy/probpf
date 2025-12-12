@@ -65,7 +65,14 @@
         <div x-data="{ expanded: false }" style="width: 100%; margin-bottom: 20px;">
             <div class="ip-list-block" :class="{ 'expanded': expanded }">
                     <template x-for="ip in uniqueIPs" :key="ip">
-                    <div class="ip-item-box" x-html="renderResponsiveIP(ip, false)"></div>
+                    <div class="ip-item-box">
+                        <div class="ip-cell">
+                            <span x-text="ip"></span>
+                            <button class="copy-btn" @click="copyText(ip)" title="Copy IP">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                            </button>
+                        </div>
+                    </div>
                     </template>
                     
                     <!-- Mobile Toggle Button -->
@@ -103,11 +110,13 @@
         <!-- Mobile Sort -->
         <div class="mobile-view-only" style="margin-bottom: 10px;">
             <select id="mobile-sort-detail" name="mobile_sort" @change="setMobileSort($event.target.value)" style="margin-bottom: 0;">
-                <option value="session_download:desc" :selected="sortBy=='session_download' && sortDesc">Download Speed (High to Low)</option>
-                <option value="session_upload:desc" :selected="sortBy=='session_upload' && sortDesc">Upload Speed (High to Low)</option>
-                <option value="active_connections:desc" :selected="sortBy=='active_connections' && sortDesc">Active Connections (High to Low)</option>
-                <option value="session_duration:desc" :selected="sortBy=='session_duration' && sortDesc">Duration (Longest First)</option>
                 <option value="remote_ip:asc" :selected="sortBy=='remote_ip' && !sortDesc">Remote IP (A-Z)</option>
+                <option value="active_connections:desc" :selected="sortBy=='active_connections' && sortDesc">Conn</option>
+                <option value="session_duration:desc" :selected="sortBy=='session_duration' && sortDesc">Duration</option>
+                <option value="session_download:desc" :selected="sortBy=='session_download' && sortDesc">Download Total</option>
+                <option value="session_upload:desc" :selected="sortBy=='session_upload' && sortDesc">Upload Total</option>
+                <option value="download_speed:desc" :selected="sortBy=='download_speed' && sortDesc">Download Speed</option>
+                <option value="upload_speed:desc" :selected="sortBy=='upload_speed' && sortDesc">Upload Speed</option>
             </select>
         </div>
 
@@ -135,7 +144,14 @@
                     <template x-for="f in filteredFlows" :key="f.remote_ip + ':' + f.remote_port + ':' + f.protocol">
                         <tr>
                             <td data-label="Protocol" x-text="f.protocol"></td>
-                            <td class="text-right" data-label="Remote IP" x-html="renderResponsiveIP(f.remote_ip, true)"></td>
+                            <td class="text-right" data-label="Remote IP">
+                                <div class="ip-cell">
+                                    <a :href="ipProvider + f.remote_ip" target="_blank" rel="noopener noreferrer" class="ip-link" x-text="getIpView(f.remote_ip)"></a>
+                                    <button class="copy-btn" @click="copyText(f.remote_ip)" title="Copy IP">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    </button>
+                                </div>
+                            </td>
                             <td data-label="Port" x-text="f.remote_port"></td>
                             <td data-label="Conn" x-text="f.active_connections"></td>
                             <td data-label="Duration" x-text="formatDuration(f.session_duration)"></td>

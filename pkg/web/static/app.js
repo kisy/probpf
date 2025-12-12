@@ -232,6 +232,9 @@ document.addEventListener('alpine:init', () => {
             if (!this.flows) return [];
             
             let list = this.flows.filter(f => {
+                 // 确保必需属性存在
+                 if (!f.protocol || !f.remote_ip || f.remote_port === undefined) return false;
+                 
                  if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) return false;
                  if (this.filterRemoteIP && !f.remote_ip.includes(this.filterRemoteIP)) return false;
                  if (this.filterRemotePort && !(f.remote_port + '').includes(this.filterRemotePort)) return false;
@@ -239,16 +242,18 @@ document.addEventListener('alpine:init', () => {
             });
 
             return list.sort((a, b) => {
-                let va = a[this.sortBy];
-                let vb = b[this.sortBy];
+                let va = a[this.sortBy] || 0;
+                let vb = b[this.sortBy] || 0;
                 
                 let res = 0;
                 if (va < vb) res = this.sortDesc ? 1 : -1;
                 else if (va > vb) res = this.sortDesc ? -1 : 1;
                 
                 if (res === 0) {
-                     if (a.remote_ip < b.remote_ip) return -1;
-                     if (a.remote_ip > b.remote_ip) return 1;
+                     const aIp = a.remote_ip || '';
+                     const bIp = b.remote_ip || '';
+                     if (aIp < bIp) return -1;
+                     if (aIp > bIp) return 1;
                 }
                 return res;
             });
@@ -281,42 +286,26 @@ document.addEventListener('alpine:init', () => {
             this.filterRemotePort = '';
         },
         
-        renderResponsiveIP(ip, linkable = true) {
-            if (!ip) return '';
-            
-            let html = ip;
-            
-            // Smart IPv6 Truncation
-            // Smart IPv6 Truncation
-            if (ip.includes(':')) {
-                const parts = ip.split(':');
-                // Truncate only if more than 4 parts
-                if (parts.length > 4) {
-                     const head = parts.slice(0, 2).join(':');
-                     const tailParts = parts.slice(-2);
-                     let tail = tailParts.join(':');
-                     // Fix for :: at start of tail (e.g. ...::xxxx)
-                     if (tailParts[0] === '') tail = ':' + tail;
-                     
-                     html = `<div class="ip-smart">
-                               <span class="ip-part-head">${head}</span>
-                               <span class="ip-part-mid">~</span>
-                                <span class="ip-part-tail">${tail}</span>
-                             </div>`;
-                }
-            }
+        // IPv6 Helper Functions
+        getIpView(ip) {
+            if (!ip || !ip.includes(':')) return ip;
 
-            if (linkable) {
-                const url = this.ipProvider + ip;
-                html = `<a href="${url}" target="_blank" rel="noopener noreferrer" class="ip-link">${html}</a>`;
-            }
+            const parts = ip.split(':');
+            if (parts.length <= 4) return ip;
+            
+            const headParts = parts.slice(0, 2);
+            let head = headParts.join(':');
+            if (headParts[1] === '') head += ':';
+            
+            const tailParts = parts.slice(-2);
+            let tail = tailParts.join(':');
+            if (tailParts[0] === '') tail = ':' + tail;
+            
+            return head + ' ~ ' + tail;
+        },
 
-            return `<div class="ip-cell">
-                        ${html}
-                        <button class="copy-btn" onclick="copyText('${ip}')" title="Copy IP">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-                        </button>
-                    </div>`;
+        copyText(text) {
+            copyText(text);
         },
         
         async resetSession() {
