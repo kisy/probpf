@@ -74,7 +74,7 @@
               }
             ]
           },
-          "unit": "bps"
+          "unit": "binBps"
         }
       },
       "gridPos": {
@@ -132,7 +132,7 @@
               }
             ]
           },
-          "unit": "bps"
+          "unit": "binBps"
         }
       },
       "gridPos": {
@@ -272,6 +272,94 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "下载"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "上传"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "yellow",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 9,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "10.0.0",
+      "targets": [
+        {
+          "expr": "increase(probpf_global_bytes_total{direction=\"download\"}[$__range])",
+          "legendFormat": "下载",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(probpf_global_bytes_total{direction=\"upload\"}[$__range])",
+          "legendFormat": "上传",
+          "refId": "B"
+        }
+      ],
+      "title": "时间段总流量",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -314,7 +402,7 @@
               }
             ]
           },
-          "unit": "bps"
+          "unit": "binBps"
         },
         "overrides": [
           {
@@ -353,7 +441,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 12
       },
       "id": 5,
       "options": {
@@ -420,7 +508,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "bps"
+                "value": "binBps"
               },
               {
                 "id": "custom.cellOptions",
@@ -439,7 +527,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "bps"
+                "value": "binBps"
               },
               {
                 "id": "custom.cellOptions",
@@ -480,7 +568,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 20
       },
       "id": 6,
       "options": {
@@ -502,31 +590,31 @@
       "pluginVersion": "10.0.0",
       "targets": [
         {
-          "expr": "probpf_device_download_bps",
+          "expr": "probpf_device_download_bps{name=~\"$device\"}",
           "format": "table",
           "instant": true,
           "refId": "A"
         },
         {
-          "expr": "probpf_device_upload_bps",
+          "expr": "probpf_device_upload_bps{name=~\"$device\"}",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "expr": "probpf_device_active_connections",
+          "expr": "probpf_device_active_connections{name=~\"$device\"}",
           "format": "table",
           "instant": true,
           "refId": "C"
         },
         {
-          "expr": "probpf_device_bytes_total{direction=\"download\"}",
+          "expr": "probpf_device_bytes_total{name=~\"$device\",direction=\"download\"}",
           "format": "table",
           "instant": true,
           "refId": "D"
         },
         {
-          "expr": "probpf_device_bytes_total{direction=\"upload\"}",
+          "expr": "probpf_device_bytes_total{name=~\"$device\",direction=\"upload\"}",
           "format": "table",
           "instant": true,
           "refId": "E"
@@ -605,14 +693,14 @@
             }
           },
           "mappings": [],
-          "unit": "bps"
+          "unit": "binBps"
         }
       },
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
-        "y": 22
+        "x": 12,
+        "y": 4
       },
       "id": 7,
       "options": {
@@ -694,14 +782,14 @@
               }
             ]
           },
-          "unit": "bps"
+          "unit": "binBps"
         }
       },
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 22
+        "w": 24,
+        "x": 0,
+        "y": 30
       },
       "id": 8,
       "options": {
@@ -718,7 +806,7 @@
       },
       "targets": [
         {
-          "expr": "topk(5, probpf_device_download_bps)",
+          "expr": "topk(5, probpf_device_download_bps{name=~\"$device\"})",
           "legendFormat": "{{name}} ({{mac}})",
           "refId": "A"
         }
@@ -732,7 +820,36 @@
   "style": "dark",
   "tags": ["probpf", "network", "monitoring"],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "label_values(probpf_device_download_bps, name)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "设备",
+        "multi": true,
+        "name": "device",
+        "options": [],
+        "query": {
+          "query": "label_values(probpf_device_download_bps, name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-1h",

@@ -16,14 +16,19 @@ type Exporter struct {
 	globalUploadBps         prometheus.Gauge
 	globalActiveConnections prometheus.Gauge
 	globalActiveDevices     prometheus.Gauge
-	globalBytesTotal        *prometheus.GaugeVec
+	globalBytesTotal        *prometheus.CounterVec
 	uptimeSeconds           prometheus.Gauge
+
+	// Track previous values for delta calculation
+	lastGlobalDownload uint64
+	lastGlobalUpload   uint64
+	lastDeviceBytes    map[string]map[string]uint64 // mac -> direction -> bytes
 
 	// Device-level metrics
 	deviceDownloadBps       *prometheus.GaugeVec
 	deviceUploadBps         *prometheus.GaugeVec
 	deviceActiveConnections *prometheus.GaugeVec
-	deviceBytesTotal        *prometheus.GaugeVec
+	deviceBytesTotal        *prometheus.CounterVec
 	deviceSessionBytes      *prometheus.GaugeVec
 
 	// Protocol-level metrics
@@ -41,11 +46,11 @@ func NewExporter(agg *stats.Aggregator) *Exporter {
 		// Global metrics
 		globalDownloadBps: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "probpf_global_download_bps",
-			Help: "Global download speed in bits per second",
+			Help: "Global download speed in bytes per second",
 		}),
 		globalUploadBps: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "probpf_global_upload_bps",
-			Help: "Global upload speed in bits per second",
+			Help: "Global upload speed in bytes per second",
 		}),
 		globalActiveConnections: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "probpf_global_active_connections",
@@ -55,10 +60,10 @@ func NewExporter(agg *stats.Aggregator) *Exporter {
 			Name: "probpf_global_active_devices",
 			Help: "Number of active devices",
 		}),
-		globalBytesTotal: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		globalBytesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Name: "probpf_global_bytes_total",
-				Help: "Total bytes transferred globally",
+				Help: "Total bytes transferred globally (counter, survives restarts)",
 			},
 			[]string{"direction"}, // "download" or "upload"
 		),
@@ -67,18 +72,23 @@ func NewExporter(agg *stats.Aggregator) *Exporter {
 			Help: "ProBPF uptime in seconds",
 		}),
 
+		// Initialize delta tracking
+		lastGlobalDownload: 0,
+		lastGlobalUpload:   0,
+		lastDeviceBytes:    make(map[string]map[string]uint64),
+
 		// Device-level metrics
 		deviceDownloadBps: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "probpf_device_download_bps",
-				Help: "Device download speed in bits per second",
+				Help: "Device download speed in bytes per second",
 			},
 			[]string{"mac", "name"},
 		),
 		deviceUploadBps: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "probpf_device_upload_bps",
-				Help: "Device upload speed in bits per second",
+				Help: "Device upload speed in bytes per second",
 			},
 			[]string{"mac", "name"},
 		),
@@ -89,10 +99,10 @@ func NewExporter(agg *stats.Aggregator) *Exporter {
 			},
 			[]string{"mac", "name"},
 		),
-		deviceBytesTotal: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
+		deviceBytesTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
 				Name: "probpf_device_bytes_total",
-				Help: "Total bytes transferred by device",
+				Help: "Total bytes transferred by device (counter, survives restarts)",
 			},
 			[]string{"mac", "name", "direction"},
 		),
@@ -145,11 +155,21 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 
 	// Collect global stats
 	globalStats := e.agg.GetGlobalStats()
-	e.globalDownloadBps.Set(float64(globalStats.DownloadSpeed * 8)) // Convert to bits
-	e.globalUploadBps.Set(float64(globalStats.UploadSpeed * 8))
+	e.globalDownloadBps.Set(float64(globalStats.DownloadSpeed))
+	e.globalUploadBps.Set(float64(globalStats.UploadSpeed))
 	e.globalActiveConnections.Set(float64(globalStats.ActiveConnections))
-	e.globalBytesTotal.WithLabelValues("download").Set(float64(globalStats.TotalDownload))
-	e.globalBytesTotal.WithLabelValues("upload").Set(float64(globalStats.TotalUpload))
+
+	// Calculate and add deltas for global bytes (Counter)
+	if globalStats.TotalDownload > e.lastGlobalDownload {
+		delta := globalStats.TotalDownload - e.lastGlobalDownload
+		e.globalBytesTotal.WithLabelValues("download").Add(float64(delta))
+		e.lastGlobalDownload = globalStats.TotalDownload
+	}
+	if globalStats.TotalUpload > e.lastGlobalUpload {
+		delta := globalStats.TotalUpload - e.lastGlobalUpload
+		e.globalBytesTotal.WithLabelValues("upload").Add(float64(delta))
+		e.lastGlobalUpload = globalStats.TotalUpload
+	}
 
 	// Collect device stats
 	clients := e.agg.GetClients()
@@ -166,11 +186,30 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 		}
 
 		// Device-level metrics
-		e.deviceDownloadBps.WithLabelValues(mac, name).Set(float64(client.DownloadSpeed * 8))
-		e.deviceUploadBps.WithLabelValues(mac, name).Set(float64(client.UploadSpeed * 8))
+		e.deviceDownloadBps.WithLabelValues(mac, name).Set(float64(client.DownloadSpeed))
+		e.deviceUploadBps.WithLabelValues(mac, name).Set(float64(client.UploadSpeed))
 		e.deviceActiveConnections.WithLabelValues(mac, name).Set(float64(client.ActiveConnections))
-		e.deviceBytesTotal.WithLabelValues(mac, name, "download").Set(float64(client.TotalDownload))
-		e.deviceBytesTotal.WithLabelValues(mac, name, "upload").Set(float64(client.TotalUpload))
+
+		// Calculate and add deltas for device bytes (Counter)
+		if e.lastDeviceBytes[mac] == nil {
+			e.lastDeviceBytes[mac] = make(map[string]uint64)
+		}
+
+		// Download
+		lastDownload := e.lastDeviceBytes[mac]["download"]
+		if client.TotalDownload > lastDownload {
+			delta := client.TotalDownload - lastDownload
+			e.deviceBytesTotal.WithLabelValues(mac, name, "download").Add(float64(delta))
+			e.lastDeviceBytes[mac]["download"] = client.TotalDownload
+		}
+
+		// Upload
+		lastUpload := e.lastDeviceBytes[mac]["upload"]
+		if client.TotalUpload > lastUpload {
+			delta := client.TotalUpload - lastUpload
+			e.deviceBytesTotal.WithLabelValues(mac, name, "upload").Add(float64(delta))
+			e.lastDeviceBytes[mac]["upload"] = client.TotalUpload
+		}
 
 		// Get session stats
 		clientWithSession := e.agg.GetClientWithSession(mac)

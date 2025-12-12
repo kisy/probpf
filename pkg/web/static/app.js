@@ -28,6 +28,14 @@ function formatDuration(seconds) {
     return `${hrs}h ${m}m`;
 }
 
+function formatDurationSince(isoString) {
+    if (!isoString || isoString.startsWith('0001')) return '-';
+    const start = new Date(isoString).getTime();
+    const now = new Date().getTime();
+    const seconds = Math.floor((now - start) / 1000);
+    return formatDuration(seconds);
+}
+
 async function copyText(text) {
     try {
         if (navigator.clipboard) {

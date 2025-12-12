@@ -80,7 +80,7 @@
                     <tr>
                         <th @click="setSort('name')" :class="{'active': sortBy=='name', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Name</th>
                         <th @click="setSort('mac')" :class="{'active': sortBy=='mac', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">MAC</th>
-                        <th @click="setSort('started')" :class="{'active': sortBy=='started', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Started</th>
+                        <th @click="setSort('started')" :class="{'active': sortBy=='started', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Duration</th>
                         <th @click="setSort('active_connections')" :class="{'active': sortBy=='active_connections', 'sort-asc': !sortDesc, 'sort-desc': sortDesc}">Active</th>
                         <th class="text-right">
                             RX <span class="sub-sort" @click.stop="setSort('download_speed')" :class="{'active': sortBy=='download_speed', 'sort-asc': sortBy=='download_speed' && !sortDesc, 'sort-desc': sortBy=='download_speed' && sortDesc}">S</span> |
@@ -98,7 +98,7 @@
                         <tr>
                             <td data-label="Name" x-text="c.name || '-'"></td>
                             <td data-label="MAC" x-text="c.mac"></td>
-                            <td data-label="Started" x-text="formatTime(c.start_time)"></td>
+                            <td data-label="Duration" x-text="formatDurationSince(c.start_time)"></td>
                             <td data-label="Active" x-text="c.active_connections || 0"></td>
                             <td data-label="RX">
                                 <div class="stat-value" style="font-size: 0.9em;" x-text="'↓ ' + formatSpeed(c.download_speed)"></div>
