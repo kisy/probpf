@@ -233,8 +233,6 @@ document.addEventListener('alpine:init', () => {
         get filteredFlows() {
             if (!this.flows) return [];
 
-            const keys = [];
-
             let list = this.flows.filter(f => {
                 if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) {
                     return false;
