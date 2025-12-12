@@ -141,7 +141,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <template x-for="f in filteredFlows" :key="f.remote_ip + ':' + f.remote_port + ':' + f.protocol">
+                    <template x-for="f in filteredFlows">
                         <tr>
                             <td data-label="Protocol" x-text="f.protocol"></td>
                             <td class="text-right" data-label="Remote IP">

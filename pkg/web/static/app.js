@@ -232,13 +232,20 @@ document.addEventListener('alpine:init', () => {
             if (!this.flows) return [];
             
             let list = this.flows.filter(f => {
-                 // 确保必需属性存在
-                 if (!f.protocol || !f.remote_ip || f.remote_port === undefined) return false;
-                 
-                 if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) return false;
-                 if (this.filterRemoteIP && !f.remote_ip.includes(this.filterRemoteIP)) return false;
-                 if (this.filterRemotePort && !(f.remote_port + '').includes(this.filterRemotePort)) return false;
-                 return true;
+                if (!f.remote_port) {
+                    f.remote_port = '-';
+                }
+                
+                if (this.filterProtocol && !f.protocol.toLowerCase().includes(this.filterProtocol.toLowerCase())) {
+                    return false;
+                };
+                if (this.filterRemoteIP && !f.remote_ip.includes(this.filterRemoteIP)) {
+                    return false;
+                }
+                if (this.filterRemotePort && !(f.remote_port + '').includes(this.filterRemotePort)) {
+                    return false;
+                }
+                return true;
             });
 
             return list.sort((a, b) => {
