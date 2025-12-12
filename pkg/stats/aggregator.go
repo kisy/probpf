@@ -30,8 +30,8 @@ type Aggregator struct {
 	lastUpdate time.Time
 
 	// Configuration
-	gcInterval time.Duration
-	dataTTL    time.Duration
+	bpfTTL  time.Duration
+	dataTTL time.Duration
 
 	detailCacheDuration time.Duration
 	nextGC              time.Time
@@ -43,8 +43,8 @@ type Aggregator struct {
 	display    map[string]*model.ClientStats     // Current Display State (MAC key)
 
 	// LAN Filtering
-	ignoreLocal bool
-	localCIDRs  []*net.IPNet
+	ignoreLan bool
+	lanCIDRs  []*net.IPNet
 
 	// New State Tracking
 	clientStartTimes map[string]time.Time
@@ -85,19 +85,25 @@ func NewAggregator(loader *bpf.Loader, hostnameMap map[string]string) *Aggregato
 		clientBaselines:     make(map[string]model.ClientStats),
 		flowSpeeds:          make(map[model.HostKey]model.HostStats),
 		flowStartTimes:      make(map[model.HostKey]time.Time),
-		gcInterval:          60 * time.Second,
+		bpfTTL:              60 * time.Second,
 		dataTTL:             300 * time.Second,
 		detailCacheDuration: 2 * time.Minute,
 		nextGC:              time.Now().Add(60 * time.Second),
 	}
 }
 
-func (a *Aggregator) SetConfig(gcInterval, dataTTL time.Duration) {
+func (a *Aggregator) SetConfig(bpfTTL, dataTTL time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.gcInterval = gcInterval
+	a.bpfTTL = bpfTTL
 	a.dataTTL = dataTTL
-	a.nextGC = time.Now().Add(gcInterval)
+	a.nextGC = time.Now().Add(bpfTTL)
+}
+
+func (a *Aggregator) SetClientCacheTTL(d time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.detailCacheDuration = d
 }
 
 func (a *Aggregator) SetDetailCacheDuration(d time.Duration) {
@@ -109,8 +115,8 @@ func (a *Aggregator) SetDetailCacheDuration(d time.Duration) {
 func (a *Aggregator) SetLocalFiltering(ignore bool, cidrs []*net.IPNet) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.ignoreLocal = ignore
-	a.localCIDRs = cidrs
+	a.ignoreLan = ignore
+	a.lanCIDRs = cidrs
 }
 
 func (a *Aggregator) isIgnoredKey(k model.HostKey) bool {
@@ -138,8 +144,8 @@ func (a *Aggregator) isIgnoredKey(k model.HostKey) bool {
 	// 2. Local Traffic Check
 	// Only if filtering is enabled and we have CIDRs
 	// Safe to read without lock IF this is called only from Update() which holds main lock?
-	// Update() holds a.mu.Lock(), so yes it's safe to access a.ignoreLocal and a.localCIDRs.
-	if a.ignoreLocal && len(a.localCIDRs) > 0 {
+	// Update() holds a.mu.Lock(), so yes it's safe to access a.ignoreLan and a.lanCIDRs.
+	if a.ignoreLan && len(a.lanCIDRs) > 0 {
 		var clientIP, remoteIP net.IP
 		if k.IPVer == 4 {
 			clientIP = net.IP(k.ClientIP[:4])
@@ -150,7 +156,7 @@ func (a *Aggregator) isIgnoredKey(k model.HostKey) bool {
 		}
 
 		clientIsLocal := false
-		for _, network := range a.localCIDRs {
+		for _, network := range a.lanCIDRs {
 			if network.Contains(clientIP) {
 				clientIsLocal = true
 				break
@@ -158,7 +164,7 @@ func (a *Aggregator) isIgnoredKey(k model.HostKey) bool {
 		}
 
 		remoteIsLocal := false
-		for _, network := range a.localCIDRs {
+		for _, network := range a.lanCIDRs {
 			if network.Contains(remoteIP) {
 				remoteIsLocal = true
 				break
@@ -315,7 +321,7 @@ func (a *Aggregator) Update() error {
 				delete(a.flowStartTimes, key)
 			}
 		}
-		a.nextGC = now.Add(a.gcInterval)
+		a.nextGC = now.Add(a.bpfTTL)
 	}
 
 	// 3. Compute Display Stats (History + Active)

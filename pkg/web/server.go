@@ -8,8 +8,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kisy/probpf/pkg/metrics"
 	"github.com/kisy/probpf/pkg/model"
 	"github.com/kisy/probpf/pkg/stats"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed clients.html
@@ -22,11 +25,17 @@ var clientHtmlContent []byte
 var staticFiles embed.FS
 
 type Server struct {
-	agg *stats.Aggregator
+	agg      *stats.Aggregator
+	exporter *metrics.Exporter
 }
 
 func NewServer(agg *stats.Aggregator) *Server {
-	return &Server{agg: agg}
+	exporter := metrics.NewExporter(agg)
+	prometheus.MustRegister(exporter)
+	return &Server{
+		agg:      agg,
+		exporter: exporter,
+	}
 }
 
 func (s *Server) RegisterHandlers() {
@@ -41,6 +50,9 @@ func (s *Server) RegisterHandlers() {
 	})
 
 	http.Handle("/static/", http.FileServer(http.FS(staticFiles)))
+
+	// Prometheus metrics endpoint
+	http.Handle("/metrics", promhttp.Handler())
 
 	http.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

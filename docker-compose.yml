@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: probpf-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.console.libraries=/usr/share/prometheus/console_libraries"
+      - "--web.console.templates=/usr/share/prometheus/consoles"
+    restart: unless-stopped
+    network_mode: "host" # 访问本地 probpf 服务
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: probpf-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana.json:/etc/grafana/provisioning/dashboards/probpf.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:

@@ -41,18 +41,41 @@ func main() {
 	var monitorLAN bool
 	var cidrFlags stringSlice
 
+	// Config file
 	flag.StringVar(&cfgFile, "c", "", "Path to TOML configuration file")
-	flag.StringVar(&cfg.Interface, "i", defaultCfg.Interface, "Interface to monitor")
-	flag.StringVar(&cfg.HTTPAddr, "l", defaultCfg.HTTPAddr, "Web server address")
-	flag.IntVar(&cfg.SyncInterval, "s", defaultCfg.SyncInterval, "Stats sync interval in seconds")
-	flag.IntVar(&cfg.GCInterval, "gc", defaultCfg.GCInterval, "Garbage collection (GC) interval in seconds")
-	flag.IntVar(&cfg.DataTTL, "ttl", defaultCfg.DataTTL, "Data retention time (TTL) in seconds")
-	flag.StringVar(&cfg.XDPMode, "x", defaultCfg.XDPMode, "XDP mode (auto, generic, driver, offload)")
+	flag.StringVar(&cfgFile, "config", "", "Path to TOML configuration file (alias)")
 
-	flag.IntVar(&cfg.DetailCacheDuration, "detail_cache", defaultCfg.DetailCacheDuration, "Detail stats cache duration in seconds")
+	// Network interface
+	flag.StringVar(&cfg.Interface, "i", defaultCfg.Interface, "Network interface to monitor")
+	flag.StringVar(&cfg.Interface, "interface", defaultCfg.Interface, "Network interface to monitor (alias)")
 
+	// HTTP server
+	flag.StringVar(&cfg.HTTPAddr, "l", defaultCfg.HTTPAddr, "Web server listen address (e.g., :8080)")
+	flag.StringVar(&cfg.HTTPAddr, "listen", defaultCfg.HTTPAddr, "Web server listen address (alias)")
+	flag.StringVar(&cfg.HTTPAddr, "http", defaultCfg.HTTPAddr, "Web server listen address (alias)")
+
+	// Intervals and timeouts
+	flag.DurationVar(&cfg.SyncInterval.Duration, "s", defaultCfg.SyncInterval.Duration, "Data sync interval")
+	flag.DurationVar(&cfg.SyncInterval.Duration, "sync-interval", defaultCfg.SyncInterval.Duration, "Data sync interval (alias)")
+
+	flag.DurationVar(&cfg.BpfTTL.Duration, "bpf-ttl", defaultCfg.BpfTTL.Duration, "BPF map cleanup interval")
+	flag.DurationVar(&cfg.BpfTTL.Duration, "gc", defaultCfg.BpfTTL.Duration, "BPF map cleanup interval (deprecated, use --bpf-ttl)")
+
+	flag.DurationVar(&cfg.FlowTTL.Duration, "flow-ttl", defaultCfg.FlowTTL.Duration, "Inactive flow timeout")
+
+	flag.DurationVar(&cfg.ClientCacheTTL.Duration, "client-ttl", defaultCfg.ClientCacheTTL.Duration, "Client detail cache duration")
+
+	// XDP mode
+	flag.StringVar(&cfg.XDPMode, "x", defaultCfg.XDPMode, "XDP mode: auto, generic, driver, offload")
+	flag.StringVar(&cfg.XDPMode, "xdp-mode", defaultCfg.XDPMode, "XDP mode: auto, generic, driver, offload (alias)")
+
+	// LAN monitoring
 	flag.BoolVar(&monitorLAN, "lan", false, "Monitor LAN traffic (disable local traffic filtering)")
+	flag.BoolVar(&monitorLAN, "monitor-lan", false, "Monitor LAN traffic (alias)")
+
+	// Local CIDR filtering
 	flag.Var(&cidrFlags, "cidr", "Local CIDR to ignore (can be specified multiple times)")
+	flag.Var(&cidrFlags, "local-cidr", "Local CIDR to ignore (alias)")
 
 	flag.Parse()
 
@@ -66,29 +89,27 @@ func main() {
 
 	// Merge flags into config
 	if monitorLAN {
-		cfg.IgnoreLocal = false
+		cfg.IgnoreLan = false
 	}
 	if len(cidrFlags) > 0 {
-		cfg.LocalCIDRs = append(cfg.LocalCIDRs, cidrFlags...)
+		cfg.LanCIDRs = append(cfg.LanCIDRs, cidrFlags...)
 	}
 
-	// Validate configuration
-	if cfg.GCInterval <= 0 {
-		cfg.GCInterval = defaultCfg.GCInterval
+	// Validate and apply smart defaults
+	if cfg.FlowTTL.Duration <= 0 {
+		cfg.FlowTTL = defaultCfg.FlowTTL
 	}
-	if cfg.DataTTL <= 0 {
-		cfg.DataTTL = defaultCfg.DataTTL
-	}
-	if cfg.DetailCacheDuration <= 0 {
-		cfg.DetailCacheDuration = defaultCfg.DetailCacheDuration
-	}
+
+	// Apply smart defaults: auto-derive gc-ttl and client-ttl from flow-ttl
+	cfg.ApplySmartDefaults()
+
 	if cfg.Interface == "" {
 		fmt.Println("Please specify interface with -i flag or in config file")
 		os.Exit(1)
 	}
 
-	// Auto-detect CIDRs if enabled (IgnoreLocal=true) and no CIDRs specified
-	if cfg.IgnoreLocal && len(cfg.LocalCIDRs) == 0 {
+	// Auto-detect CIDRs if enabled (IgnoreLan=true) and no CIDRs specified
+	if cfg.IgnoreLan && len(cfg.LanCIDRs) == 0 {
 		iface, err := net.InterfaceByName(cfg.Interface)
 		if err != nil {
 			fmt.Printf("Warning: Failed to get interface %s for auto-detection: %v\n", cfg.Interface, err)
@@ -102,7 +123,7 @@ func main() {
 					if ipnet, ok := addr.(*net.IPNet); ok {
 						// Skip link-local if desired? No, usually fine to include.
 						// Just append the string representation
-						cfg.LocalCIDRs = append(cfg.LocalCIDRs, ipnet.String())
+						cfg.LanCIDRs = append(cfg.LanCIDRs, ipnet.String())
 						fmt.Printf("Auto-detected local CIDR: %s\n", ipnet.String())
 					}
 				}
@@ -112,8 +133,8 @@ func main() {
 
 	// Parse Local CIDRs
 	var parsedCIDRs []*net.IPNet
-	if cfg.IgnoreLocal {
-		for _, nonParsed := range cfg.LocalCIDRs {
+	if cfg.IgnoreLan {
+		for _, nonParsed := range cfg.LanCIDRs {
 			_, ipnet, err := net.ParseCIDR(nonParsed)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error parsing CIDR %s: %v\n", nonParsed, err)
@@ -122,7 +143,7 @@ func main() {
 			parsedCIDRs = append(parsedCIDRs, ipnet)
 		}
 		if len(parsedCIDRs) > 0 {
-			fmt.Printf("Ignoring local traffic in: %v\n", cfg.LocalCIDRs)
+			fmt.Printf("Ignoring local traffic in: %v\n", cfg.LanCIDRs)
 		} else {
 			if !monitorLAN {
 				// Warn if user wanted to ignore LAN but we found no CIDRs?
@@ -140,10 +161,14 @@ func main() {
 	fmt.Printf("ProBPF Configuration:\n")
 	fmt.Printf("  Interface:    %s\n", cfg.Interface)
 	fmt.Printf("  Web Server:   http://%s/clients\n", cfg.HTTPAddr)
-	fmt.Printf("  Ignore LAN:   %v\n", cfg.IgnoreLocal)
-	if cfg.IgnoreLocal {
-		if len(cfg.LocalCIDRs) > 0 {
-			fmt.Printf("  Local CIDRs:  %v\n", cfg.LocalCIDRs)
+	fmt.Printf("  Sync Interval: %v\n", cfg.SyncInterval)
+	fmt.Printf("  Flow Timeout:  %v (--flow-ttl)\n", cfg.FlowTTL)
+	fmt.Printf("  BPF Cleanup:   %v (--bpf-ttl, auto: flow-ttl/5)\n", cfg.BpfTTL)
+	fmt.Printf("  Client Cache:  %v (auto: flow-ttl*0.4)\n", cfg.ClientCacheTTL)
+	fmt.Printf("  Ignore LAN:   %v\n", cfg.IgnoreLan)
+	if cfg.IgnoreLan {
+		if len(cfg.LanCIDRs) > 0 {
+			fmt.Printf("  Local CIDRs:  %v\n", cfg.LanCIDRs)
 		} else {
 			fmt.Printf("  Local CIDRs:  (None detected - Warning: Traffic might not be filtered)\n")
 		}
@@ -163,9 +188,9 @@ func main() {
 
 	// 2. Initialize Stats Aggregator
 	aggregator := stats.NewAggregator(loader, cfg.Hostname)
-	aggregator.SetLocalFiltering(cfg.IgnoreLocal, parsedCIDRs)
-	aggregator.SetConfig(time.Duration(cfg.GCInterval)*time.Second, time.Duration(cfg.DataTTL)*time.Second)
-	aggregator.SetDetailCacheDuration(time.Duration(cfg.DetailCacheDuration) * time.Second)
+	aggregator.SetLocalFiltering(cfg.IgnoreLan, parsedCIDRs)
+	aggregator.SetConfig(cfg.BpfTTL.Duration, cfg.FlowTTL.Duration)
+	aggregator.SetClientCacheTTL(cfg.ClientCacheTTL.Duration)
 
 	// 3. Initialize Web Server
 	if cfg.HTTPAddr == "" {
@@ -186,7 +211,7 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	ticker := time.NewTicker(time.Duration(cfg.SyncInterval) * time.Second)
+	ticker := time.NewTicker(cfg.SyncInterval.Duration)
 	defer ticker.Stop()
 
 	// Initial Update
