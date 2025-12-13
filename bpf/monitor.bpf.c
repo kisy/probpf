@@ -1,22 +1,75 @@
-// vmlinux.h 包含所有内核类型定义 (通过 BTF 生成)
-// 注意：vmlinux.h 必须在其他头文件之前包含
-#include "vmlinux.h"
+#include <linux/bpf.h>
+#include <linux/if_ether.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <linux/tcp.h>
+#include <linux/udp.h>
 
 // BPF 辅助函数和宏
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
-#include <bpf/bpf_tracing.h>
 
-// 协议常量定义（vmlinux.h 不包含这些）
+// 定义基础类型以匹配 kernel 类型
+typedef __u8  u8;
+typedef __u16 u16;
+typedef __u32 u32;
+typedef __u64 u64;
+
+// 通用常量如果未定义
+#ifndef ETH_ALEN
 #define ETH_ALEN 6
+#endif
+#ifndef ETH_P_IP
 #define ETH_P_IP 0x0800
+#endif
+#ifndef ETH_P_IPV6
 #define ETH_P_IPV6 0x86DD
+#endif
+#ifndef ETH_P_8021Q
 #define ETH_P_8021Q 0x8100
+#endif
+#ifndef ETH_P_8021AD
 #define ETH_P_8021AD 0x88A8
+#endif
+
+// 需要手动定义 struct sk_buff 以供 fentry 使用 (不可信偏移风险!)
+// 这是一个典型 x86_64 6.x 内核的布局，非常 Hacky
+struct sk_buff_minimal {
+    char _padding_1[0x70];
+    unsigned int len;               // offset 0x70
+    char _padding_2[0x4];          // padding
+    char _padding_3[0x4e];         // 0x78 -> 0xc6 = 0x4e bytes? No.
+    // 我们只关心 len, head, data
+    // len: ~0x70 (112)
+    // head: ~0xc8 (200)
+    // data: ~0xd0 (208)
+    // mac_header: ~0xc2 (194) type u16
+} __attribute__((packed));
+
+// 为了在代码中方便使用，我们定义宏来访问偏移
+// SKB_ACCESS(skb, type, offset)
+#define SKB_READ_FIELD(skb, offset, type) \
+    ({ type _val; bpf_probe_read_kernel(&_val, sizeof(_val), (void *)skb + offset); _val; })
+
+// 常量定义
+#define OFF_SKB_LEN 0x70
+#define OFF_SKB_MAC_HEADER 0xc2
+#define OFF_SKB_HEAD 0xc8
+#define OFF_SKB_DATA 0xd0
+
+// vlan头定义
+struct vlan_hdr {
+    __be16 h_vlan_TCI;
+    __be16 h_vlan_encapsulated_proto;
+};
 
 // 保持原有的常量定义
+#ifndef IPPROTO_TCP
 #define IPPROTO_TCP 6
+#endif
+#ifndef IPPROTO_UDP
 #define IPPROTO_UDP 17
+#endif
 
 // 保持原有的结构体定义
 struct host_key {
@@ -251,28 +304,35 @@ int xdp_monitor(struct xdp_md *ctx) {
 
 // fentry 程序入口 - 用于出向流量统计
 SEC("fentry/dev_hard_start_xmit")
-int BPF_PROG(fentry_egress_monitor, struct sk_buff *skb, struct net_device *dev)
+int fentry_egress_monitor(__u64 *ctx)
 {
+    // dev_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
+    // ctx[0] = skb
+    // ctx[1] = dev
+    struct sk_buff_minimal *skb = (struct sk_buff_minimal *)ctx[0];
+
     if (!skb)
         return 0;
     
-    unsigned int len = skb->len;
+    // 使用宏手动读取字段，绕过 CO-RE
+    unsigned int len = SKB_READ_FIELD(skb, OFF_SKB_LEN, unsigned int);
     
     // 限制最大读取长度
     if (len > 1514)
         len = 1514;
     
-    // 从 per-cpu map 获取缓冲区（避免栈溢出）
+    // 从 per-cpu map 获取缓冲区
     __u32 key = 0;
     __u8 (*buffer)[512] = bpf_map_lookup_elem(&packet_buffer, &key);
     if (!buffer)
         return 0;
     
     unsigned int read_len = len < sizeof(*buffer) ? len : sizeof(*buffer);
+
+    // 读取 skb->data 指针
+    void *data_ptr = SKB_READ_FIELD(skb, OFF_SKB_DATA, void *);
     
-    // 使用 bpf_probe_read_kernel 将数据搬运到 map 缓冲区
-    // 直接使用 skb->data 作为源地址
-    if (bpf_probe_read_kernel(buffer, read_len, skb->data) < 0)
+    if (bpf_probe_read_kernel(buffer, read_len, data_ptr) < 0)
         return 0;
     
     // 传递缓冲区给 process_packet 解析

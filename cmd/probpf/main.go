@@ -127,7 +127,7 @@ func main() {
 						// Skip link-local if desired? No, usually fine to include.
 						// Just append the string representation
 						cfg.LanCIDRs = append(cfg.LanCIDRs, ipnet.String())
-						fmt.Printf("Auto-detected local CIDR: %s\n", ipnet.String())
+						// fmt.Printf("Auto-detected local CIDR: %s\n", ipnet.String())
 					}
 				}
 			}
@@ -146,7 +146,7 @@ func main() {
 			parsedCIDRs = append(parsedCIDRs, ipnet)
 		}
 		if len(parsedCIDRs) > 0 {
-			fmt.Printf("Ignoring local traffic in: %v\n", cfg.LanCIDRs)
+			// fmt.Printf("Ignoring local traffic in: %v\n", cfg.LanCIDRs)
 		} else {
 			if !monitorLAN {
 				// Warn if user wanted to ignore LAN but we found no CIDRs?

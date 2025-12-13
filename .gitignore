@@ -1,4 +1,4 @@
-pkg/bpf/monitor_bpf*
+pkg/bpf/monitor_*
 bin/
 probpf-*
 cli.toml

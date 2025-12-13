@@ -27,7 +27,7 @@ if [ -d "/usr/include/${ARCH}-linux-gnu" ]; then
     INCLUDE_PATH="-I/usr/include/${ARCH}-linux-gnu"
 fi
 
-# Run bpf2go with architecture-specific target
+# Generate BPF Logic (Single Build, No CO-RE)
 echo "Generating BPF for ${ARCH} with flags: ${INCLUDE_PATH} -target ${BPF_TARGET}"
 go run github.com/cilium/ebpf/cmd/bpf2go \
     -cc clang \
