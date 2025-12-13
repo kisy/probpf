@@ -77,6 +77,9 @@ func main() {
 	flag.Var(&cidrFlags, "cidr", "Local CIDR to ignore (can be specified multiple times)")
 	flag.Var(&cidrFlags, "local-cidr", "Local CIDR to ignore (alias)")
 
+	// Force TC mode
+	flag.BoolVar(&cfg.UseTC, "tc", defaultCfg.UseTC, "Force using TC for egress monitoring instead of fentry")
+
 	flag.Parse()
 
 	// Load configuration

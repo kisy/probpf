@@ -284,4 +284,14 @@ int BPF_PROG(fentry_egress_monitor, struct sk_buff *skb, struct net_device *dev)
     return 0;
 }
 
+// TC 程序入口 - 作为 fentry 的兼容性备选
+SEC("tc")
+int tc_egress_monitor(struct __sk_buff *skb) {
+    void *data = (void *)(long)skb->data;
+    void *data_end = (void *)(long)skb->data_end;
+    
+    process_packet(data, data_end, skb->len, 0); // 0 = egress
+    return 0; // TC_ACT_OK
+}
+
 char LICENSE[] SEC("license") = "Dual BSD/GPL";

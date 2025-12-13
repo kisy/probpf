@@ -32,6 +32,7 @@ type Config struct {
 	Hostname       map[string]string
 	IgnoreLan      bool     `toml:"ignore_lan"` // Default true
 	LanCIDRs       []string `toml:"lan_cidrs"`  // CIDR strings
+	UseTC          bool     `toml:"use_tc"`     // Force TC mode for egress
 }
 
 func DefaultConfig() Config {
