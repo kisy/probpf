@@ -1,23 +1,22 @@
-#include <linux/bpf.h>
+// vmlinux.h 包含所有内核类型定义 (通过 BTF 生成)
+// 注意：vmlinux.h 必须在其他头文件之前包含
+#include "vmlinux.h"
+
+// BPF 辅助函数和宏
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h>
-#include <linux/if_ether.h>
-#include <linux/ip.h>
-#include <linux/ipv6.h>
-#include <linux/tcp.h>
-#include <linux/udp.h>
+#include <bpf/bpf_tracing.h>
+
+// 协议常量定义（vmlinux.h 不包含这些）
+#define ETH_ALEN 6
+#define ETH_P_IP 0x0800
+#define ETH_P_IPV6 0x86DD
+#define ETH_P_8021Q 0x8100
+#define ETH_P_8021AD 0x88A8
 
 // 保持原有的常量定义
 #define IPPROTO_TCP 6
 #define IPPROTO_UDP 17
-
-#define IPPROTO_TCP 6
-#define IPPROTO_UDP 17
-
-struct vlan_hdr {
-    __be16 h_vlan_TCI;
-    __be16 h_vlan_encapsulated_proto;
-};
 
 // 保持原有的结构体定义
 struct host_key {
@@ -44,10 +43,18 @@ struct host_stats {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, 100000);
+    __uint(max_entries, 65536);
     __type(key, struct host_key);
     __type(value, struct host_stats);
 } host_stats SEC(".maps");
+
+// Per-CPU 缓冲区用于 fentry 程序暂存数据包内容
+struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, __u8[512]);  // 512 字节缓冲区
+} packet_buffer SEC(".maps");
 
 // 辅助函数
 static __always_inline int is_broadcast_mac(unsigned char *mac) {
@@ -55,7 +62,11 @@ static __always_inline int is_broadcast_mac(unsigned char *mac) {
 }
 
 static __always_inline int is_multicast_mac(unsigned char *mac) {
-    return mac[0] & 1;
+    return (mac[0] & 0x01) == 0x01;
+}
+
+static __always_inline int is_zero_mac(unsigned char *mac) {
+    return (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]) == 0;
 }
 
 static __always_inline int is_broadcast_ipv4(__u32 addr) {
@@ -104,8 +115,8 @@ static __always_inline void process_packet(void *data, void *data_end, __u64 pkt
     if ((void*)(eth + 1) > data_end)
         return;
 
-    if (is_broadcast_mac(eth->h_source) || is_multicast_mac(eth->h_source) ||
-        is_broadcast_mac(eth->h_dest) || is_multicast_mac(eth->h_dest))
+    if (is_broadcast_mac(eth->h_source) || is_multicast_mac(eth->h_source) || is_zero_mac(eth->h_source) ||
+        is_broadcast_mac(eth->h_dest) || is_multicast_mac(eth->h_dest) || is_zero_mac(eth->h_dest))
         return;
 
     struct host_key key = {};
@@ -175,8 +186,8 @@ static __always_inline void process_packet(void *data, void *data_end, __u64 pkt
         if ((void*)(ip6h + 1) > data_end)
             return;
 
-        if (is_multicast_ipv6(ip6h->saddr.s6_addr) || 
-            is_multicast_ipv6(ip6h->daddr.s6_addr))
+        if (is_multicast_ipv6((__u8 *)&ip6h->saddr) ||
+            is_multicast_ipv6((__u8 *)&ip6h->daddr))
             return;
 
         key.ip_ver = 6;
@@ -200,8 +211,6 @@ static __always_inline void process_packet(void *data, void *data_end, __u64 pkt
     // Ingress (Client->Remote): src=Client, dst=Remote
     // Egress (Remote->Client): src=Remote, dst=Client
     // Ports
-    // Ingress (Client->Remote): src=Client, dst=Remote
-    // Egress (Remote->Client): src=Remote, dst=Client
     if (is_ingress) {
         key.remote_port = dst_port;
         key.src_port = src_port;
@@ -209,7 +218,7 @@ static __always_inline void process_packet(void *data, void *data_end, __u64 pkt
         key.remote_port = src_port;
         key.src_port = dst_port;
     }
-
+    
     struct host_stats *stats, newstats = {};
     stats = bpf_map_lookup_elem(&host_stats, &key);
     if (!stats) {
@@ -221,9 +230,9 @@ static __always_inline void process_packet(void *data, void *data_end, __u64 pkt
         bpf_map_update_elem(&host_stats, &key, &newstats, BPF_ANY);
     } else {
         if (is_ingress) {
-            stats->rx_bytes += pkt_len;
+            __sync_fetch_and_add(&stats->rx_bytes, pkt_len);
         } else {
-            stats->tx_bytes += pkt_len;
+            __sync_fetch_and_add(&stats->tx_bytes, pkt_len);
         }
     }
 }
@@ -240,16 +249,39 @@ int xdp_monitor(struct xdp_md *ctx) {
     return XDP_PASS;
 }
 
-// TC 程序入口
-SEC("tc")
-int tc_monitor(struct __sk_buff *skb) {
-    void *data = (void *)(long)skb->data;
-    void *data_end = (void *)(long)skb->data_end;
+// fentry 程序入口 - 用于出向流量统计
+SEC("fentry/dev_hard_start_xmit")
+int BPF_PROG(fentry_egress_monitor, struct sk_buff *skb, struct net_device *dev)
+{
+    if (!skb)
+        return 0;
     
-    // TC 处理出向流量 (is_ingress = 0)
-    process_packet(data, data_end, skb->len, 0);
+    unsigned int len = skb->len;
     
-    return BPF_OK;
+    // 限制最大读取长度
+    if (len > 1514)
+        len = 1514;
+    
+    // 从 per-cpu map 获取缓冲区（避免栈溢出）
+    __u32 key = 0;
+    __u8 (*buffer)[512] = bpf_map_lookup_elem(&packet_buffer, &key);
+    if (!buffer)
+        return 0;
+    
+    unsigned int read_len = len < sizeof(*buffer) ? len : sizeof(*buffer);
+    
+    // 使用 bpf_probe_read_kernel 将数据搬运到 map 缓冲区
+    // 直接使用 skb->data 作为源地址
+    if (bpf_probe_read_kernel(buffer, read_len, skb->data) < 0)
+        return 0;
+    
+    // 传递缓冲区给 process_packet 解析
+    void *data_start = (void *)buffer;
+    void *data_end = data_start + read_len;
+    
+    process_packet(data_start, data_end, len, 0);
+    
+    return 0;
 }
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
